@@ -50,9 +50,9 @@ option(TRADE_ENABLE_SANITIZER "开启 ASan + UBSan，排查内存与未定义行
 find_package(Drogon   REQUIRED)
 find_package(OpenSSL REQUIRED)
 find_package(ZLIB    REQUIRED)
-find_package(Jsoncpp REQUIRED)   # 提供 Jsoncpp::jsoncpp
 find_package(spdlog  REQUIRED)   # 提供 spdlog::spdlog
 find_package(Threads REQUIRED)
+find_package(GTest REQUIRED)
 
 # MySQL / hiredis / rabbitmq-c 在 Ubuntu 上没有靠谱的 CMake config 文件，
 # 统一走 pkg-config 解析。
@@ -64,6 +64,7 @@ find_package(Threads REQUIRED)
 #   libhiredis-dev     → hiredis.pc
 #   librabbitmq-dev    → librabbitmq.pc
 find_package(PkgConfig REQUIRED)
+pkg_check_modules(JSONCPP REQUIRED IMPORTED_TARGET jsoncpp)
 pkg_check_modules(MYSQLCLIENT REQUIRED IMPORTED_TARGET mysqlclient)
 pkg_check_modules(HIREDIS     REQUIRED IMPORTED_TARGET hiredis)
 pkg_check_modules(RABBITMQ    REQUIRED IMPORTED_TARGET librabbitmq)
@@ -154,7 +155,7 @@ target_link_libraries(trade_core PUBLIC
     PkgConfig::MYSQLCLIENT
     PkgConfig::HIREDIS
     PkgConfig::RABBITMQ
-    Jsoncpp::jsoncpp
+    PkgConfig::JSONCPP
     spdlog::spdlog
     OpenSSL::SSL
     OpenSSL::Crypto

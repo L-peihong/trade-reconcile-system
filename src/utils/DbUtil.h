@@ -24,7 +24,7 @@ namespace utils {
 // Service 层事务的唯一管理方式，禁止裸用 TransactionPtr 做提交/回滚。
 class TransactionGuard {
 public:
-    explicit TransactionGuard(drogon::orm::TransactionPtr tx)
+    explicit TransactionGuard(std::shared_ptr<drogon::orm::Transaction> tx)
         : tx_(std::move(tx)) {
         if (!tx_) {
             throw std::invalid_argument("TransactionGuard: 空事务指针");
@@ -59,10 +59,10 @@ public:
         finished_ = true;
     }
 
-    drogon::orm::TransactionPtr tx() const { return tx_; }
+    std::shared_ptr<drogon::orm::Transaction> tx() const { return tx_; }
 
 private:
-    drogon::orm::TransactionPtr tx_;
+    std::shared_ptr<drogon::orm::Transaction> tx_;
     bool finished_ = false;
 };
 
@@ -71,6 +71,6 @@ private:
 //   1. 调用线程不是 Drogon 事件循环线程 —— 统一由工作线程池调用；
 //   2. config.json 的 db_clients 必须 is_fast=false —— 同步事务接口只在
 //      慢客户端（DbClientImpl）存在，fast 客户端直接 assert(0)。
-drogon::orm::TransactionPtr beginTransaction();
+std::shared_ptr<drogon::orm::Transaction> beginTransaction();
 
 }  // namespace utils

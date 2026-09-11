@@ -6,7 +6,7 @@
 
 namespace utils {
 
-drogon::orm::TransactionPtr beginTransaction() {
+std::shared_ptr<drogon::orm::Transaction> beginTransaction() {
     auto client = drogon::app().getDbClient();  // 名为 "default" 的客户端
     if (!client) {
         throw std::runtime_error(
