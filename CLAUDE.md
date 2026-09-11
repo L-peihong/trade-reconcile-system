@@ -15,8 +15,28 @@
 3. **可靠消息** —— 业务数据与本地消息表**同事务**写入 → 异步投递 RabbitMQ → 下游消费
 4. **异步通知** —— 消费者驱动通知任务，指数退避重试至成功或进死信
 5. **日终对账** —— 拉取渠道账单 → 与本地流水逐笔核对 → 生成差异明细 → 管理接口人工处理
-6. **管理接口** —— 差异查询、差异核销、批次重跑、库存/账户查询
+6. **管理接口** —— 差异查询、差异核销、库存/账户查询（批次重跑属 V1.5）
 7. **可观测性** —— 全链路 `request_id` 贯穿 HTTP / MQ / 日志
+
+### 范围与优先级（V1 决策）
+
+本项目要上简历，目标央国企科技类岗位（银行软开 / 运营商 / 电网信息化）。据此两条铁律：
+
+- **深度 > 广度**。面试官会顺着任何一个点追问两层。宁可 4 个点各讲 10 分钟，不要 10 个模块各讲 1 分钟。
+- **每条链路必须有验收**：代码 + 单测 + 一组能写进简历的数据（如压测结果），才算「完成」。
+
+V1 只保**一条可演示闭环** + **四个深度亮点**：
+
+| 亮点 | 硬核知识点 | 验收 |
+|---|---|---|
+| 防超卖 | 条件 UPDATE + InnoDB 行锁 | 并发压测：库存不为负、订单数 = 抢购数 |
+| 幂等 | 唯一索引抢占 + 响应快照返回 | 同一 X-Request-Id 重放 N 次只生效一次 |
+| 可靠消息 | 本地消息表同事务 + 手动 ACK + 死信 | 投递失败重试到成功，消息零丢失 |
+| 日终对账 | 渠道账单 vs 本地流水逐笔核对 | 差异笔定位准确、核销后批次闭环 |
+
+**V1 不做（禁止提前实现）**：退款流程、账户冻结/解冻、热点商品缓存、对账批次重跑接口、通知扫描式重试任务。对应字段/状态值在表结构中预留。
+
+简历写法与面试问答的完整准备见 `docs/design.md`（面试复习大纲）。
 
 ### 技术栈
 
@@ -25,7 +45,7 @@
 | 语言 | C++ | C++17 | `std::optional` / `shared_mutex` / 结构化绑定 |
 | Web 框架 | Drogon | 1.9.x | HTTP 服务、ORM、异步 DbClient、定时任务 |
 | 数据库 | MySQL | 8.0 | 事务与行锁的载体，InnoDB + `REPEATABLE READ` |
-| 缓存 | Redis | 7 | 幂等 token、分布式锁、热点商品缓存 |
+| 缓存 | Redis | 7 | 幂等 token、分布式锁（热点缓存属 V1.5，不做） |
 | 消息队列 | RabbitMQ | 3.12+ | 异步解耦，手动 ACK + 死信队列 |
 | 容器 | Docker Compose | v2 | 一键拉起全部中间件 |
 | 单元测试 | GoogleTest | 1.14 | Service 层与工具类测试 |
@@ -95,10 +115,10 @@ trade-reconcile-system/
 │   │   ├── Reconcile.h
 │   │   └── Result.h           # 统一返回体 Result<T>
 │   ├── tasks/                 # 定时任务：由 Drogon 的定时器驱动
-│   │   ├── MessageRelayTask    # 扫描本地消息表 → 投递 MQ
-│   │   ├── NotifyRetryTask     # 通知失败重试
-│   │   ├── ReconcileTask       # 日终对账
-│   │   └── OrderTimeoutTask    # 超时未支付订单关单
+│   │   ├── MessageRelayTask    # [V1] 扫描本地消息表 → 投递 MQ
+│   │   ├── ReconcileTask       # [V1] 日终对账
+│   │   ├── OrderTimeoutTask    # [V1] 超时未支付订单关单（归还库存）
+│   │   └── NotifyRetryTask     # [V1.5] 通知失败重试 —— V1 由死信队列承担
 │   ├── consumer/              # MQ 消费者：手动 ACK + 幂等
 │   │   └── NotifyConsumer
 │   ├── common/                # 横切关注点
@@ -119,6 +139,8 @@ trade-reconcile-system/
     ├── integration/           # 连真实 MySQL/Redis 的集成测试
     └── data/                  # 测试夹具
 ```
+
+**`[V1]` 为本期实现；`[V1.5]` 只留目录占位，不写代码。**
 
 ### 分层职责（**不要越界**）
 
@@ -184,6 +206,19 @@ bash scripts/smoke_test.sh      # 端到端跑一遍：下单 → 支付回调 �
 bash scripts/gen_bill.sh 2026-09-11   # 生成指定日期的模拟渠道账单
 ```
 
+### 3.6 实现顺序与里程碑（链路优先，随时可演示）
+
+骨架已完成：构建与环境、公共地基（错误码 / Result / Logger / 健康检查）。之后**按链路端到端推进**，顺序不可颠倒：
+
+1. **下单链路** —— `sql/schema.sql` → Product/Order 的 DAO → Service → Controller → curl 通
+2. **幂等 + 防超卖** —— `t_idempotent` + 条件更新 + 并发压测脚本 ← 亮点①
+3. **支付链路** —— 回调验签 + 幂等落库 + 订单状态流转 + 账户入账（事务）← 亮点②
+4. **消息链路** —— 本地消息表 + MQ 投递 + 手动 ACK + 消费幂等 + 死信 ← 亮点③
+5. **对账链路** —— `gen_bill.sh` + 日终任务 + 差异查询/核销 ← 亮点④
+6. **收尾** —— 单测补全 + `smoke_test.sh` + `docs/design.md` + README
+
+依赖关系决定顺序：防超卖必须在下单链路之后（它验证下单），对账必须在支付链路之后（它核对入账）。任何一条链路完成后，项目都处于可演示状态。
+
 ---
 
 ## 4. 编码约定
@@ -197,25 +232,38 @@ bash scripts/gen_bill.sh 2026-09-11   # 生成指定日期的模拟渠道账单
 - 一个事务内只允许操作 MySQL。**禁止在事务里发 MQ、调 HTTP、调 Redis 之外的任何外部 IO** —— 需要跨系统一致性时走本地消息表（见 4.6 与第 6 节）。
 - 事务块内**不写日志到磁盘以外的重活**，不做耗时计算，尽量缩短持锁时间。
 - 事务提交失败必须向上抛 `BizException`，不要吞掉异常返回一个"看起来成功"的 Result。
-- 用 RAII 封装事务，保证任何路径退出都会回滚或提交，避免手写 `try/catch` 漏掉分支。
+- **所有事务必须用 `utils::TransactionGuard` 管理，禁止裸用 `TransactionPtr` 做提交/回滚。**
+- **同步事务必须在工作线程池上执行**（Controller 提交任务到 `utils::ThreadPool`），禁止在 Drogon IO 线程阻塞（原因见 6.6）。
+
+#### Drogon 1.9 事务语义（已核对 v1.9.11 源码，写事务代码前必须知道）
+
+- **`~Transaction()` = 自动 COMMIT**（`TransactionImpl.cc:35-86`）：析构时若未提交未回滚，会把 `commit` 投递到事件循环，结果只通过 commitCallback 上报。**禁止依赖析构做回滚** —— 那是隐式提交，且失败不抛异常。
+- `Transaction` **没有 `commit()` 方法**（头文件中被注释掉）。显式同步提交走事务自己的 SQL 管线：`execSqlSync("commit")` —— 与前面的语句严格有序、同步阻塞、失败抛异常，这才是「提交失败必须抛异常」的实现方式。
+- `rollback()` **幂等**（`TransactionImpl.cc:158-159`）：重复调用是 no-op，不会崩、不会双回滚。
+- 事务内**任何一条 SQL 失败，Drogon 会自动 rollback**（`TransactionImpl.cc:124/232`）。guard 的显式 rollback 是兜底，与自动回滚叠加也安全。
+- **同步事务接口只在 `is_fast=false` 的客户端存在**（`DbClientLockFree.cc:232-241` 对 `newTransaction()` 直接 `assert(0)`）。config.json 的 `"is_fast": false` 不是性能选项，是客户端实现的二选一，**禁止改成 true**。
+
+#### TransactionGuard 契约（utils/DbUtil）
+
+- `commit()`：执行 `tx->execSqlSync("commit")`，失败抛异常 —— 满足「提交失败必须抛异常」；guard 析构会兜底 rollback。
+- 析构**只做一件事**：`!finished_ && tx_` → `tx_->rollback()`。正常路径必须显式 `commit()`；任何未显式提交的退出（异常、提前 return）都会回滚。
+- **不可移动、不可拷贝**（修正 1：同步场景下 guard 是栈上局部变量，负责权唯一，禁止移动）。
 
 ```cpp
-// Service 层标准写法
+// Service 层标准写法（运行于工作线程池线程，见 6.6）
 Result<OrderVO> OrderService::createOrder(const CreateOrderReq& req) {
-    auto tx = DbUtil::beginTransaction();          // RAII，析构未提交则回滚
-    try {
-        auto idem = idempotentDao_->tryAcquire(tx, req.requestId, ...);
-        if (!idem.acquired) return Result<OrderVO>::from(idem.cachedResponse);
+    utils::TransactionGuard txGuard(utils::beginTransaction());  // 异常路径析构 → rollback
+    auto tx = txGuard.tx();
 
-        productDao_->deductStock(tx, req.productId, req.quantity);  // 防超卖 SQL，见第 6 节
-        auto order = orderDao_->insert(tx, buildOrder(req));
-        localMessageDao_->insert(tx, buildPayMessage(order));       // 同事务写本地消息表
+    auto idem = idempotentDao_->tryAcquire(tx, req.requestId, ...);
+    if (!idem.acquired) return Result<OrderVO>::from(idem.cachedResponse);  // 未 commit → 析构回滚
 
-        tx->commit();
-        return Result<OrderVO>::ok(order);
-    } catch (const BizException& e) {
-        return Result<OrderVO>::fail(e.code(), e.what());
-    }
+    productDao_->deductStock(tx, req.productId, req.quantity);  // 防超卖 SQL，见第 6 节
+    auto order = orderDao_->insert(tx, buildOrder(req));
+    localMessageDao_->insert(tx, buildPayMessage(order));       // 同事务写本地消息表
+
+    txGuard.commit();          // 显式提交；失败抛异常 → 析构兜底 rollback → 上层转 kDbError
+    return Result<OrderVO>::ok(order);
 }
 ```
 
@@ -303,6 +351,8 @@ log->info("stock deducted, product_id={} qty={} remain={}", pid, qty, remain);
 **金额统一用 `DECIMAL(18,2)` 或 BIGINT 存「分」，绝对不用 `FLOAT` / `DOUBLE`。**
 除明确说明外，每张表都有 `id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY`、`created_at`、`updated_at`。
 
+**以下 10 张表全部属于 V1。**标注「V1.5」的字段/功能只保留列结构，V1 不实现。
+
 ### 5.1 `t_account` —— 账户表
 
 | 字段 | 类型 | 说明 |
@@ -316,6 +366,7 @@ log->info("stock deducted, product_id={} qty={} remain={}", pid, qty, remain);
 
 索引：`uk_account_no`、`uk_user_id`。
 约定：`balance` 与 `frozen_amount` 只用于展示与对账，**扣减一律走条件 UPDATE**，不要读出来改完再写回。
+V1 范围：只实现入账与出账两条流转。冻结/解冻（`frozen_amount`、`status = 1`）属 V1.5，字段保留。
 
 ### 5.2 `t_account_flow` —— 账户流水表
 
@@ -339,8 +390,7 @@ log->info("stock deducted, product_id={} qty={} remain={}", pid, qty, remain);
 | `product_no` | VARCHAR(32) | 商品编码，**唯一索引** |
 | `name` | VARCHAR(128) | 商品名称 |
 | `price` | DECIMAL(18,2) | 单价 |
-| `stock` | INT UNSIGNED | 可售库存 |
-| `locked_stock` | INT UNSIGNED | 下单锁定库存 |
+| `stock` | INT UNSIGNED | 可售库存。V1 直接扣减/归还，不引入锁定库存（`locked_stock` 双栏设计属 V1.5） |
 | `version` | INT UNSIGNED | 乐观锁版本号（辅助手段，主防超卖靠条件更新） |
 | `status` | TINYINT | 0 下架 1 上架 |
 
@@ -365,6 +415,7 @@ log->info("stock deducted, product_id={} qty={} remain={}", pid, qty, remain);
 
 索引：`uk_order_no`、`uk_request_id`、`idx_user_status(user_id, status)`、`idx_status_expire(status, expire_time)`。
 状态机（单向，禁止回退）：`0 → 1 → 2`，`0 → 3`，`1 → 4`。状态流转必须带上原状态作为条件：`WHERE order_no = ? AND status = 0`，靠受影响行数判断是否被别人抢先改过。
+V1 实现 `0 → 1 → 2` 与 `0 → 3`（超时关单归还库存）；`1 → 4` 退款属 V1.5，状态值预留。
 
 ### 5.5 `t_payment` —— 支付记录表
 
@@ -397,6 +448,13 @@ log->info("stock deducted, product_id={} qty={} remain={}", pid, qty, remain);
 索引：`uk_request_id`、`idx_expire_time`。
 约定：先 `INSERT` 抢占（唯一键冲突即「处理中」）→ 业务处理 → `UPDATE` 写回响应快照。**冲突且 status 仍为 0 时返回 `10003` 让客户端稍后重试，不要返回成功** —— 否则会在业务尚未完成时给出虚假成功。
 
+**幂等语义边界**：
+
+- 幂等记录与业务写入**同一事务**：业务失败回滚，幂等键一并释放 —— 不会留下「永远处理中」的僵尸记录。
+- 并发同一 `request_id`：先到者拿到事务执行权，后到者唯一键冲突 → `status = 0` 返回 `10003`（稍后重试）；`status = 1` 直接返回 `response_body` 快照。
+- 已知取舍：先到者执行失败后，后到者的重试会**重走整个流程**（等价于一次新请求）。下单/回调均可接受 —— 它们本身业务幂等（`t_order.uk_request_id`、`t_payment.uk_channel_trade` 唯一索引兜底）。
+- V1.5 可选升级路径：幂等表独立事务 + 租约超时（`status = 0` 超过 N 秒视为死占并抢占）。V1 不做。
+
 ### 5.7 `t_local_message` —— 本地消息表
 
 | 字段 | 类型 | 说明 |
@@ -427,7 +485,7 @@ log->info("stock deducted, product_id={} qty={} remain={}", pid, qty, remain);
 | `message_id` | VARCHAR(64) | 来源消息 ID，**唯一索引**（消费幂等） |
 
 索引：`uk_notify_no`、`uk_message_id`、`idx_status_retry(status, next_retry_time)`。
-重试策略：指数退避 `2^n` 秒（1s / 2s / 4s / 8s / 16s…），上限 8 次后置 `3`。
+V1 重试策略：消费者内指数退避 `2^n` 秒（1s / 2s / 4s / 8s…），超限 nack（`requeue = false`）进死信队列，由死信消费者兜底；DB 扫描式重试（NotifyRetryTask）属 V1.5。`uk_message_id` 同时承担消费幂等去重。
 
 ### 5.9 `t_reconcile_batch` —— 对账批次表
 
@@ -629,7 +687,7 @@ dbClient->execSqlAsync(sql, [self = shared_from_this()](const Result& r) { ... }
 - Controller 必须继承 `enable_shared_from_this` 并用 `shared_from_this()` 捕获。
 - **注意循环引用**：`shared_ptr` 捕获进回调、回调又被对象持有 → 引用计数永不归零、内存泄漏。需要时用 `weak_ptr`。
 - 事务对象（`TransactionPtr`）在提交/回滚后即失效，**不要在延迟任务里持有它**。
-- 事务必须保证**任何异常路径都会回滚**，用 RAII 封装，不要手写 `try/catch` 分支。
+- **同步 DB API 禁止在 Drogon 事件循环线程调用**。已核对 v1.9.11 源码：`execSqlSync` 的 Blocking 模式在 `f.get()` 上阻塞等待结果（`SqlBinder.cc:80-120`），而 MySQL 结果依赖事件循环投递；fast 客户端（`is_fast=true`，1.9 默认）把 DbClient 绑定到 IO 循环上，在循环线程内调用同步接口必然死锁，其 `newTransaction()` 更是直接 `assert(0)`。**结论：Service 的同步事务统一跑在工作线程池（`utils::ThreadPool`）上，Controller 在 handler 里提交任务，用 `drogon::app().getLoop()->queueInLoop` 把响应切回循环线程。** 事务的 RAII 守卫契约见 4.1。
 
 ### 6.7 Windows 宿主机 + Docker 的换行符与时区
 
@@ -676,4 +734,4 @@ dbClient->execSqlAsync(sql, [self = shared_from_this()](const Result& r) { ... }
 
 - 接口清单与请求响应示例：`docs/api.md`
 - 错误码全表：`docs/error_code.md`
-- 关键设计决策与取舍（**面试前重点看这里**）：`docs/design.md`
+- 关键设计决策与取舍 —— **面试问答大纲**：每个技术点按「问题 → 方案 → 权衡 → 验证数据」组织，面试前按此复习：`docs/design.md`

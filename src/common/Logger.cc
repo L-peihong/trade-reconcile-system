@@ -1,5 +1,6 @@
 #include "common/Logger.h"
 
+#include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <iostream>
@@ -39,6 +40,7 @@ constexpr std::size_t kMaxRequestIdLen = 64;
 std::shared_ptr<spdlog::async_logger>         Logger::logger_;
 std::shared_ptr<spdlog::details::thread_pool> Logger::pool_;
 std::vector<spdlog::sink_ptr>                 Logger::sinks_;
+std::atomic<bool>                             Logger::shutdownFlag_{false};
 
 // ------------------------------- init -------------------------------
 
@@ -57,6 +59,12 @@ void Logger::init(spdlog::level::level_enum level) {
 }
 
 void Logger::ensureInitialized() {
+    // shutdown 之后不再初始化、不碰 spdlog 全局注册表 —— 它已随
+    // spdlog::shutdown() 释放，再碰是未定义行为。此后的 get() 返回空指针，
+    // 调用方判空即可安全降级。
+    if (shutdownFlag_.load(std::memory_order_acquire)) {
+        return;
+    }
     // 直接复用 init 的 call_once：首次进来会用默认级别建好，
     // 非首次是空操作。关键是这里**不改级别** —— 否则每次 get() 都会把
     // 调用方刚设好的级别打回默认值。
@@ -135,6 +143,10 @@ std::string Logger::sanitizeRequestId(const std::string& raw) {
 // ------------------------------ shutdown ----------------------------
 
 void Logger::shutdown() {
+    // 先立旗再清理：在途线程若此刻正在 ensureInitialized/init，
+    // 之后的调用会拿到空 logger，而不是碰已释放的 spdlog 注册表。
+    shutdownFlag_.store(true, std::memory_order_release);
+
     if (logger_) {
         // async_logger::flush() 会把一个 flush 任务投进线程池的 FIFO 队列并
         // 等待它完成 —— 队列是先进先出的，所以这一步等价于"排空前面积压的所有

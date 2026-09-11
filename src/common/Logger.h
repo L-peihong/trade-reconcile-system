@@ -11,6 +11,7 @@
 // ============================================================================
 #pragma once
 
+#include <atomic>
 #include <memory>
 #include <string>
 #include <vector>
@@ -63,10 +64,13 @@ private:
     static void doInit(spdlog::level::level_enum level);
     static void ensureInitialized();
 
-    // 注意：这三个是**静态成员**，定义在 Logger.cc 中。
+    // 注意：这些是**静态成员**，定义在 Logger.cc 中。
     static std::shared_ptr<spdlog::async_logger>          logger_;
     static std::shared_ptr<spdlog::details::thread_pool>  pool_;
     static std::vector<spdlog::sink_ptr>                  sinks_;
+    // shutdown() 后为 true：ensureInitialized 提前返回、get() 返回空指针，
+    // 调用方必须判空（ThreadPool 的兜底日志依赖此语义）。
+    static std::atomic<bool> shutdownFlag_;
 };
 
 }  // namespace common
