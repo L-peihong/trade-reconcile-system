@@ -1,0 +1,14 @@
+# 构建上下文瘦身：只把源码与配置打进镜像。
+# build/ 在 Dev Container 里是 named volume（宿主机上通常不存在），
+# 此处保留排除规则防止误把构建产物打进上下文。
+
+build/
+logs/
+.git/
+.cache/
+.vscode/
+.devcontainer/
+docs/
+tests/
+sql/
+*.md

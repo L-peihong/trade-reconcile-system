@@ -15,7 +15,10 @@
 #include <string>
 
 #include "common/Logger.h"
+#include "common/RequestIdFilter.h"
 #include "controllers/HealthController.h"
+#include "controllers/OrderController.h"
+#include "utils/ThreadPool.h"
 
 namespace {
 
@@ -44,11 +47,7 @@ int main(int argc, char* argv[]) {
     auto log = common::Logger::get();
 
     // ------------------------------------------------------------------------
-    // 2. 把 Drogon / trantor 自己的日志也接到 spdlog 上。
-    //    不接的话进程里会有两条互不相干的日志流（trantor 走它的 stdout，
-    //    业务走 spdlog），排查问题时得在两个地方对着时间戳找，非常难受。
-    //    接了之后全进程只有一条流、一种格式、一份落盘文件。
-    //
+    // 2. 把 Drogon / trantor 自己的日志也接到 spdlog 上（全进程一条日志流）。
     //    若这套 API 在你的 trantor 版本上编译不过，整段注释掉即可 ——
     //    只影响日志归并，不影响功能。
     // ------------------------------------------------------------------------
@@ -56,7 +55,8 @@ int main(int argc, char* argv[]) {
         [](const char* msg, uint64_t len) {
             auto logger = common::Logger::get();
             if (logger) {
-                logger->info("[drogon] {}", std::string(msg, static_cast<std::size_t>(len)));
+                logger->info("[drogon] {}",
+                             std::string(msg, static_cast<std::size_t>(len)));
             }
         },
         []() {
@@ -66,41 +66,53 @@ int main(int argc, char* argv[]) {
             }
         });
 
+    // ------------------------------------------------------------------------
+    // 3. 预热工作线程池（CLAUDE.md 4.1/6.6）：同步事务统一跑在这里，
+    //    Drogon 事件循环线程禁止调用同步 DB API（死锁/assert）。
+    //    静态局部变量初始化本身线程安全，显式调用让「池在服务开始前已就绪」
+    //    成为确定事实。
+    // ------------------------------------------------------------------------
+    utils::globalThreadPool();
+
+    // ------------------------------------------------------------------------
+    // 4. Controller / Filter 无需手工注册：
+    //    - HttpController<T> 与 HttpFilter<T> 都继承 DrObject<T>，静态初始化期
+    //      自注册；注册名 = demangle(typeid(T).name()) 的**全限定名**
+    //      （如 "controllers::OrderController"、"common::RequestIdFilter"）——
+    //      路由宏里引用过滤器必须用全限定名。
+    //    - 前提是目标文件被链接进来：trade_core 是静态库，CMakeLists 已用
+    //      -Wl,--whole-archive 强制纳入，否则无人引用的注册对象会被链接器
+    //      丢弃 → 编译全过、运行时路由 404（CLAUDE.md 3.2）。
+    //    这里的 include 仅作显式声明，实际注册由上述机制完成。
+    // ------------------------------------------------------------------------
+
     const std::string configPath = parseConfigPath(argc, argv);
 
     // ------------------------------------------------------------------------
-    // 3. 加载配置。内含 listener / db_clients / redis_clients / app；
+    // 5. 加载配置。内含 listener / db_clients / redis_clients / app；
     //    自定义的 rabbitmq 段会被 Drogon 归到 customConfig，
     //    用 drogon::app().getCustomConfig()["rabbitmq"] 取。
     // ------------------------------------------------------------------------
     drogon::app().loadConfigFile(configPath);
 
     // ------------------------------------------------------------------------
-    // 4. IO 线程数。
+    // 6. IO 线程数。
     //    必须在 loadConfigFile **之后**调用，否则会被配置里的值覆盖回去。
-    //    这里显式设置，让代码成为最终事实来源而不依赖 config 的键名拼写。
     // ------------------------------------------------------------------------
     drogon::app().setThreadNum(kIoThreads);
 
-    // ------------------------------------------------------------------------
-    // 5. Controller 无需手工注册。
-    //    HealthController 继承自 drogon::HttpController<T>，其 AutoCreation
-    //    默认为 true，对象在静态初始化阶段就自注册好了 —— 这里 include 它的头文件
-    //    （进而让 .cc 被链进来）就是注册的全部条件。
-    //    详见 HealthController.h 里关于 ADD_METHOD_TO 的说明。
-    // ------------------------------------------------------------------------
-
-    log->info("trade_server starting: config={} io_threads={}", configPath, kIoThreads);
+    log->info("trade_server starting: config={} io_threads={} pool_threads={}",
+              configPath, kIoThreads, utils::globalThreadPool().threadCount());
 
     // ------------------------------------------------------------------------
-    // 6. 启动事件循环，阻塞至退出。
+    // 7. 启动事件循环，阻塞至退出。
     // ------------------------------------------------------------------------
     drogon::app().run();
 
     // ------------------------------------------------------------------------
-    // 7. 退出前冲刷日志。
+    // 8. 退出前冲刷日志。
     //    run() 返回后不能再调用 log->xxx —— shutdown() 会释放线程池，
-    //    此后的日志调用是未定义行为。所以这条 info 必须在 shutdown 之前。
+    //    此后的日志调用返回空指针。所以这条 info 必须在 shutdown 之前。
     // ------------------------------------------------------------------------
     log->info("trade_server stopped");
     common::Logger::shutdown();

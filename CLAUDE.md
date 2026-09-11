@@ -182,6 +182,8 @@ cmake --build build/debug -j$(nproc)   # 编译
 cmake --build build/debug --target trade_server -j$(nproc)
 ```
 
+**⚠️ 链接硬性要求**：`trade_core` 是静态库，而 Controller/Filter 靠 `DrObject<T>` 静态初始化自注册 —— 目标文件若无符号被引用会被链接器整块丢弃，表现为**编译全过、运行时路由 404**。因此链接 `trade_core` 必须 `-Wl,--whole-archive ... -Wl,--no-whole-archive`（CMakeLists.txt 已配置，**禁止删掉**，也不要改成共享库后留空）。
+
 ### 3.3 运行
 
 ```bash
@@ -242,6 +244,7 @@ bash scripts/gen_bill.sh 2026-09-11   # 生成指定日期的模拟渠道账单
 - `rollback()` **幂等**（`TransactionImpl.cc:158-159`）：重复调用是 no-op，不会崩、不会双回滚。
 - 事务内**任何一条 SQL 失败，Drogon 会自动 rollback**（`TransactionImpl.cc:124/232`）。guard 的显式 rollback 是兜底，与自动回滚叠加也安全。
 - **同步事务接口只在 `is_fast=false` 的客户端存在**（`DbClientLockFree.cc:232-241` 对 `newTransaction()` 直接 `assert(0)`）。config.json 的 `"is_fast": false` 不是性能选项，是客户端实现的二选一，**禁止改成 true**。
+- **Drogon 1.9.x 没有 `TransactionPtr` 类型别名**（v1.9.11 头文件只定义了 `DbClientPtr`）。事务参数统一写 `std::shared_ptr<drogon::orm::Transaction>`，写 `drogon::orm::TransactionPtr` 会编译失败（2026-09-11 实踩，已修复）。
 
 #### TransactionGuard 契约（utils/DbUtil）
 

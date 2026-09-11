@@ -167,7 +167,12 @@ target_link_libraries(trade_core PUBLIC
 # 产物路径与 CLAUDE.md 第 3 节一致：build/debug/trade_server
 # ---------------------------------------------------------------------------
 add_executable(trade_server "${TRADE_MAIN}")
-target_link_libraries(trade_server PRIVATE trade_core)
+# ⚠️ 静态库 + 自动注册的硬性要求（CLAUDE.md 3.2）：
+# HttpController/HttpFilter 靠 DrObject<T> 静态初始化自注册；目标文件若无符号
+# 被引用，链接器会整块丢弃 → 编译全过、运行时路由 404。
+# --whole-archive 强制纳入全部目标文件（GNU/Clang 链接器；本项目只在容器构建）。
+target_link_libraries(trade_server PRIVATE
+    -Wl,--whole-archive trade_core -Wl,--no-whole-archive)
 
 # ---------------------------------------------------------------------------
 # 测试

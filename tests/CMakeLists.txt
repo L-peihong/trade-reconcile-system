@@ -24,8 +24,10 @@ add_executable(unit_tests ${TRADE_UNIT_TEST_SOURCES})
 
 # trade_core 提供业务代码与 include 路径；gtest_main 提供 main()。
 # 注意 gtest_main 会传递地带上 gtest，不需要再单独链接 GTest::gtest。
+# 与 trade_server 同理（CLAUDE.md 3.2）：whole-archive 保证静态库中
+# 未被直接引用的目标文件（自注册类等）也被纳入，测试进程行为与主程序一致。
 target_link_libraries(unit_tests PRIVATE
-    trade_core
+    -Wl,--whole-archive trade_core -Wl,--no-whole-archive
     GTest::gtest_main)
 
 # ---------------------------------------------------------------------------
