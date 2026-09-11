@@ -1,0 +1,169 @@
+// ============================================================================
+// 高可靠交易与对账系统 —— Dev Container 配置
+//
+// 分工（见 CLAUDE.md 第 1 节）：
+//   Windows 宿主机  →  跑 docker compose（中间件）+ 编辑代码
+//   Dev Container   →  编译、测试、运行 C++ 服务
+//
+// 因此 MySQL / Redis / RabbitMQ 由宿主机上的 docker compose 提供，
+// 容器内通过 host.docker.internal 访问。详见 "containerEnv" 处的说明。
+// ============================================================================
+{
+  "name": "trade-reconcile-system (Ubuntu 22.04 / C++17 / Drogon)",
+
+  "image": "ubuntu:22.04",
+
+  // ---------------------------------------------------------------------------
+  // 以 root 运行
+  //
+  // 两个原因：
+  //   1. ubuntu:22.04 基础镜像**不含 sudo**，非 root 用户装不了包；
+  //   2. build/ 挂的是 named volume，Docker 在卷首次创建时会按镜像内目录的
+  //      属主设定权限。以 root 运行可彻底绕开 "Permission denied" 那一类问题。
+  // 本地单人开发容器，root 是可接受的；若要切非 root，需先 apt 装 sudo 并
+  // 对 build/ 卷执行 chown，两者缺一不可。
+  // ---------------------------------------------------------------------------
+  "remoteUser": "root",
+
+  "workspaceFolder": "/workspaces/trade-reconcile-system",
+
+  // ---------------------------------------------------------------------------
+  // 挂载
+  // ---------------------------------------------------------------------------
+  "mounts": [
+    // 【关键】build/ 必须用 named volume，不要 bind mount 到 Windows 文件系统。
+    // Windows 的 9p/virtiofs 转发对小文件读写极慢，C++ 编译会产生成千上万个
+    // .o / .d 文件，bind mount 下增量编译会慢到不可用（实测差 5–10 倍）。
+    // 注意 build/ 里的产物不需要跨容器重建保留，丢了重编即可。
+    "source=trade-reconcile-build,target=${containerWorkspaceFolder}/build,type=volume",
+
+    // Docker socket：让 ms-azuretools.vscode-docker 扩展能在容器内看到镜像与容器。
+    // ⚠️ 挂 socket 等同于把宿主机的 Docker 控制权交给容器（可起特权容器），
+    //    本地开发容器没问题，**不要把这份配置带到共享/生产环境**。
+    // 若某天 VSCode 报 "permission denied while trying to connect to the Docker
+    // daemon socket"，说明 Docker Desktop 的 socket 路径变了，先用宿主机
+    // `docker context inspect` 确认实际路径再改这里。
+    "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind"
+  ],
+
+  // ⚠️ ${containerWorkspaceFolder} 变量替换需要较新版本的 Dev Containers 扩展
+  //    （spec v0.2xx 之后）。若你的扩展版本较旧、挂载报错，把上面那行的 target
+  //    换成写死的路径即可：
+  //      "source=trade-reconcile-build,target=/workspaces/trade-reconcile-system/build,type=volume"
+
+  // ---------------------------------------------------------------------------
+  // 容器环境变量
+  // ---------------------------------------------------------------------------
+  "containerEnv": {
+    // 【必须】CLAUDE.md 6.7：容器默认 UTC，与国内渠道账单日期对不上，
+    // 会让日终对账整体错位一天。这个变量不能省。
+    "TZ": "Asia/Shanghai",
+    // 中文商品名、日志中的中文必须能正常输出，否则 spdlog 写文件会乱码
+    "LANG": "C.UTF-8",
+    "LC_ALL": "C.UTF-8",
+    // 方便在容器内直接用 docker CLI / clangd 找编译数据库
+    "CMAKE_EXPORT_COMPILE_COMMANDS": "1"
+  },
+
+  // ---------------------------------------------------------------------------
+  // 依赖安装
+  //
+  // ⚠️ 与你给的清单相比，这里**补了 5 个包**，都是少一个就编不过或跑不起来的：
+  //   ninja-build      —— CMakePresets.json 用的是 Ninja 生成器，build-essential 不含它
+  //   libspdlog-dev    —— CLAUDE.md 4.4 要求用 spdlog，find_package(spdlog) 需要它
+  //   libgtest-dev     —— CLAUDE.md 第 3 节要求 ctest / GTest
+  //   ca-certificates  —— 拉 packagecloud 源走 HTTPS，缺它 curl 直接失败
+  //   gnupg            —— packagecloud 的 script.deb.sh 要用它导入 GPG 公钥
+  // 另加 libpq-dev 作为防御：Drogon 官方包可能带 PG 支持编译，其 CMake config
+  // 会引用 libpq，缺了会在链接期报一堆看不懂的 undefined reference，装它成本极低。
+  //
+  // 【Drogon 官方源不可用时的 fallback —— 从源码编译】
+  // 企业内网 / 代理拦截 / packagecloud 临时故障时，把上面 `curl ... | bash` 及
+  // 其后的 `apt-get install -y drogon` 整段替换成下面脚本（约 10–20 分钟）：
+  //
+  //   apt-get install -y --no-install-recommends git \
+  //     && git clone --depth 1 --branch v1.9.11 \
+  //          https://github.com/drogonframework/drogon.git /tmp/drogon \
+  //     && cd /tmp/drogon && git submodule update --init --recursive \
+  //     && mkdir -p build && cd build \
+  //     && cmake .. -DCMAKE_BUILD_TYPE=Release \
+  //                 -DCMAKE_INSTALL_PREFIX=/usr/local \
+  //                 -DBUILD_EXAMPLES=OFF -DBUILD_CTL=OFF -DBUILD_TESTING=OFF \
+  //                 -DBUILD_DOC=OFF -DBUILD_REDIS=ON -DBUILD_MYSQL=ON \
+  //                 -DBUILD_SQLITE=OFF -DBUILD_PG=OFF \
+  //     && make -j"$(nproc)" && make install && ldconfig \
+  //     && rm -rf /tmp/drogon
+  //
+  //   装完用 `find / -name 'DrogonConfig.cmake' 2>/dev/null` 确认 CMake 能定位到它。
+  //   ⚠️ 源码编译若换过编译器（如用 conda/clang），务必确认 Drogon 与业务代码的
+  //      _GLIBCXX_USE_CXX11_ABI 一致，否则会出现一连串 std::string 相关的
+  //      undefined reference —— 这类报错的真因就是 ABI 不匹配，不是缺库。
+  // ---------------------------------------------------------------------------
+  "postCreateCommand": "apt-get update && apt-get install -y --no-install-recommends build-essential cmake ninja-build git curl wget ca-certificates gnupg gdb pkg-config libssl-dev zlib1g-dev uuid-dev libjsoncpp-dev libmysqlclient-dev libhiredis-dev librabbitmq-dev libc-ares-dev libbrotli-dev libspdlog-dev libgtest-dev libpq-dev && curl -fsSL https://packagecloud.io/install/repositories/drogonframework/drogon/script.deb.sh | bash && apt-get install -y --no-install-recommends drogon && ldconfig && (drogon_ctl version || echo '[WARN] drogon_ctl 不可用，请检查 Drogon 是否安装成功') && rm -rf /var/lib/apt/lists/*",
+
+  // ---------------------------------------------------------------------------
+  // 端口转发
+  //
+  // 说明：MySQL / Redis / RabbitMQ 跑在**宿主机**的 docker compose 里，
+  // 它们到宿主机的端口映射由 docker-compose.yml 负责，不归这里管。
+  // 这里列的端口主要服务于「容器内跑起来的服务」：
+  //   8080  —— trade_server，容器内启动后从宿主机浏览器直接访问
+  // 其余几个是兜底：万一哪天你把中间件挪进容器（或在本容器内起了单机版），
+  // 端口也已就位，不必回来改配置。
+  // ---------------------------------------------------------------------------
+  "forwardPorts": [8080, 3306, 6379, 5672, 15672],
+
+  "portsAttributes": {
+    "8080": {
+      "label": "trade_server (HTTP)",
+      "onAutoForward": "notify"
+    },
+    "3306": {
+      "label": "MySQL 8.0",
+      "onAutoForward": "silent"
+    },
+    "6379": {
+      "label": "Redis 7",
+      "onAutoForward": "silent"
+    },
+    "5672": {
+      "label": "RabbitMQ (AMQP)",
+      "onAutoForward": "silent"
+    },
+    "15672": {
+      "label": "RabbitMQ 管理台",
+      "onAutoForward": "silent"
+    }
+  },
+
+  // ---------------------------------------------------------------------------
+  // VSCode 扩展
+  //
+  // 用 customizations.vscode.extensions（当前规范写法），
+  // 顶层的 "extensions" 字段已废弃，新版本会告警。
+  // ---------------------------------------------------------------------------
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-vscode.cpptools",
+        "ms-vscode.cmake-tools",
+        "ms-azuretools.vscode-docker"
+      ],
+      "settings": {
+        // 与 .vscode/settings.json 保持一致，防止容器重建后 IntelliSense 走默认值
+        "C_Cpp.default.cppStandard": "c++17",
+        "C_Cpp.default.intelliSenseMode": "linux-gcc-x64",
+        "terminal.integrated.defaultProfile.linux": "bash",
+        "files.eol": "\n"
+      }
+    }
+  },
+
+  // ---------------------------------------------------------------------------
+  // 容器以特权用户的身份跑，且挂了 docker.sock，这里显式声明便于日后审计
+  // ---------------------------------------------------------------------------
+  "remoteEnv": {
+    // 让容器内的脚本能判断自己处在开发容器中
+    "DEV_CONTAINER": "1"
+  }
+}

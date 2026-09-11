@@ -1,0 +1,109 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 21,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "description": "三套预设的共同基底：Ninja 生成器，产物落在 build/<presetName>，导出编译数据库。",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_CXX_STANDARD": "17",
+        "CMAKE_CXX_STANDARD_REQUIRED": "ON",
+        "CMAKE_CXX_EXTENSIONS": "OFF",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "debug",
+      "displayName": "Debug (含测试 / trace 日志)",
+      "description": "日常开发用。产物在 build/debug，二进制为 build/debug/trade_server。",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "TRADE_BUILD_TESTS": "ON",
+        "TRADE_ENABLE_TRACE_LOG": "ON",
+        "TRADE_ENABLE_SANITIZER": "OFF"
+      }
+    },
+    {
+      "name": "release",
+      "displayName": "Release (无测试 / 关 trace)",
+      "description": "出包与压测用。产物在 build/release，测试目标与 trace 日志一并关掉。",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_FLAGS_RELEASE": "-O2 -DNDEBUG",
+        "TRADE_BUILD_TESTS": "OFF",
+        "TRADE_ENABLE_TRACE_LOG": "OFF",
+        "TRADE_ENABLE_SANITIZER": "OFF"
+      }
+    },
+    {
+      "name": "test",
+      "displayName": "Test (Debug + ASan/UBSan)",
+      "description": "跑测试专用。相对 debug 的唯一区别是打开 ASan + UBSan，用来抓越界、UAF 和未定义行为。若第三方库（尤其 Drogon）触发误报，把 TRADE_ENABLE_SANITIZER 改回 OFF 即可回到普通 debug 行为。",
+      "inherits": "debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "TRADE_BUILD_TESTS": "ON",
+        "TRADE_ENABLE_TRACE_LOG": "ON",
+        "TRADE_ENABLE_SANITIZER": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "debug",
+      "displayName": "构建 Debug",
+      "configurePreset": "debug"
+    },
+    {
+      "name": "release",
+      "displayName": "构建 Release",
+      "configurePreset": "release"
+    },
+    {
+      "name": "test",
+      "displayName": "构建 Test (ASan/UBSan)",
+      "configurePreset": "test"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "debug",
+      "displayName": "运行测试 (Debug)",
+      "configurePreset": "debug",
+      "output": {
+        "outputOnFailure": true,
+        "verbosity": "default"
+      },
+      "execution": {
+        "noTestsAction": "error",
+        "stopOnFailure": false
+      }
+    },
+    {
+      "name": "test",
+      "displayName": "运行测试 (ASan/UBSan)",
+      "configurePreset": "test",
+      "environment": {
+        "ASAN_OPTIONS": "detect_leaks=1:abort_on_error=1:strict_string_checks=1",
+        "UBSAN_OPTIONS": "print_stacktrace=1:halt_on_error=0"
+      },
+      "output": {
+        "outputOnFailure": true,
+        "verbosity": "default"
+      },
+      "execution": {
+        "noTestsAction": "error",
+        "stopOnFailure": false
+      }
+    }
+  ]
+}

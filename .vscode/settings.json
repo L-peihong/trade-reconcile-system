@@ -1,0 +1,114 @@
+// ============================================================================
+// 高可靠交易与对账系统 —— VSCode 工作区配置
+// 本文件为团队共享配置，必须提交到 Git（.gitignore 已特意不整体忽略 .vscode）。
+// 个人偏好请写 .vscode/settings.local.json 或用户级设置，不要改这里。
+// ============================================================================
+{
+  // ---------------------------------------------------------------------------
+  // CMake Tools
+  // ---------------------------------------------------------------------------
+  // ⚠️ 重要：本仓库同时提供了 CMakePresets.json。**只要存在预设文件，
+  //    cmake.buildDirectory 就会被忽略**，实际生效的是预设里的 binaryDir。
+  //    这里仍然写上，是因为它与预设的约定一致（debug 预设的 binaryDir 同样是
+  //    build/debug），所以两者不冲突；保留它可让你在关闭预设时行为不变。
+  //    若确实想让本项生效，需设 "cmake.useCMakePresets": "never"。
+  "cmake.buildDirectory": "${workspaceFolder}/build/debug",
+  "cmake.useCMakePresets": "always",
+  "cmake.configureOnOpen": true,
+  "cmake.configureOnEdit": false,
+  "cmake.generator": "Ninja",
+  "cmake.parallelJobs": 0,
+  "cmake.exportCompileCommandsFile": true,
+  "cmake.skipConfigureIfCachePresent": true,
+  "cmake.buildArgs": [],
+  "cmake.configureArgs": [],
+  // 构建目录不入源码管理，但保留在资源管理器中以便查看日志
+  "cmake.options.statusBarVisibility": "visible",
+
+  // ---------------------------------------------------------------------------
+  // C++ IntelliSense
+  // ---------------------------------------------------------------------------
+  "C_Cpp.default.cppStandard": "c++17",
+  "C_Cpp.default.cStandard": "c17",
+  "C_Cpp.default.intelliSenseMode": "linux-gcc-x64",
+
+  // ⚠️ 下面两项二选一，同时存在时 configurationProvider 优先级更高，
+  //    compileCommands 会被静默忽略。
+  //
+  // 【推荐保留】configurationProvider：由 CMake Tools 按当前激活的预设提供
+  //   编译参数，切换 debug/release/test 预设时 IntelliSense 自动跟随。
+  "C_Cpp.default.configurationProvider": "ms-vscode.cmake-tools",
+  //
+  // 【备用】直接指向编译数据库。仅在停用上面的 configurationProvider 后生效，
+  //   好处是不依赖 CMake Tools 的状态，适合用 clangd 或排查 IntelliSense 异常时使用。
+  "C_Cpp.default.compileCommands": "${workspaceFolder}/build/debug/compile_commands.json",
+  //
+  // 注意：configurationProvider 生效时，下面的 includePath 同样会被忽略。
+  // 它只是兜底，保证在 CMake 尚未 configure 时也不至于满屏红波浪线。
+  "C_Cpp.default.includePath": [
+    "${workspaceFolder}/src",
+    "${workspaceFolder}/third_party"
+  ],
+  "C_Cpp.default.defines": [],
+  "C_Cpp.intelliSenseEngine": "default",
+  "C_Cpp.errorSquiggles": "enabled",
+  "C_Cpp.autoAddFileAssociations": false,
+
+  // 让 .h 按 C++ 而非 C 解析
+  "files.associations": {
+    "*.h": "cpp",
+    "*.hh": "cpp",
+    "*.hpp": "cpp",
+    "*.inl": "cpp",
+    "*.tcc": "cpp",
+    "*.cc": "cpp",
+    "CMakeLists.txt": "cmake",
+    "*.cmake": "cmake"
+  },
+
+  // ---------------------------------------------------------------------------
+  // 编辑器与文件
+  // ---------------------------------------------------------------------------
+  "files.eol": "\n",
+  "files.encoding": "utf8",
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true,
+  "files.trimFinalNewlines": true,
+  "editor.tabSize": 4,
+  "editor.insertSpaces": true,
+  "editor.detectIndentation": false,
+  "editor.rulers": [100],
+  "editor.formatOnSave": false,
+  "editor.renderWhitespace": "boundary",
+
+  // ---------------------------------------------------------------------------
+  // 性能：把生成目录排除出文件监视与全局搜索
+  // 否则 build/ 下的几万个中间文件会拖慢保存与搜索
+  // ---------------------------------------------------------------------------
+  "files.watcherExclude": {
+    "**/build/**": true,
+    "**/.cache/**": true,
+    "**/.git/objects/**": true,
+    "**/logs/**": true
+  },
+  "search.exclude": {
+    "**/build/**": true,
+    "**/.cache/**": true,
+    "**/logs/**": true,
+    "**/third_party/**": true
+  },
+  "search.useIgnoreFiles": true,
+
+  // ---------------------------------------------------------------------------
+  // 终端：容器内为 Ubuntu，默认使用 bash
+  // ---------------------------------------------------------------------------
+  "terminal.integrated.defaultProfile.linux": "bash",
+  "terminal.integrated.cwd": "${workspaceFolder}",
+  "terminal.integrated.scrollback": 10000,
+
+  // ---------------------------------------------------------------------------
+  // Docker 扩展：指向 compose 文件，便于在侧边栏直接查看中间件状态
+  // ---------------------------------------------------------------------------
+  "docker.compose.command": "docker compose",
+  "docker.dockerComposeFile": ["${workspaceFolder}/docker-compose.yml"]
+}

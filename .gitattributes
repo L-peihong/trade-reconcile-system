@@ -1,0 +1,58 @@
+# ============================================================================
+# 换行符统一为 LF
+# 背景见 CLAUDE.md 6.7：Windows 宿主机 + Docker 容器，若 .sh 被 Git 转成 CRLF，
+# 容器内执行会报 `bash: $'\r': command not found`，且 .sql 的 CRLF 会让
+# MySQL 初始化脚本解析异常。这里强制全仓库 LF，从源头掐掉这类问题。
+# ============================================================================
+
+# 默认：自动识别文本文件，工作区一律 LF
+* text=auto eol=lf
+
+# --- 脚本与 SQL：必须 LF，否则容器内直接执行失败 ---
+*.sh                text eol=lf
+*.bash              text eol=lf
+*.sql               text eol=lf
+
+# --- C++ 源码与头文件 ---
+*.cc                text eol=lf
+*.cpp               text eol=lf
+*.cxx               text eol=lf
+*.h                 text eol=lf
+*.hh                text eol=lf
+*.hpp               text eol=lf
+*.inl               text eol=lf
+
+# --- 构建与配置文件 ---
+CMakeLists.txt      text eol=lf
+*.cmake             text eol=lf
+CMakePresets.json   text eol=lf
+Dockerfile          text eol=lf
+*.dockerfile        text eol=lf
+docker-compose*.yml text eol=lf
+*.yml               text eol=lf
+*.yaml              text eol=lf
+*.json              text eol=lf
+*.jsonc             text eol=lf
+*.md                text eol=lf
+*.txt               text eol=lf
+.gitattributes      text eol=lf
+.gitignore          text eol=lf
+
+# --- 二进制文件：禁止 Git 做换行符转换与 diff ---
+*.png               binary
+*.jpg               binary
+*.jpeg              binary
+*.gif               binary
+*.ico               binary
+*.pdf               binary
+*.zip               binary
+*.gz                binary
+*.tar               binary
+*.so                binary
+*.a                 binary
+*.o                 binary
+*.bin               binary
+
+# --- 语言统计：把生成目录排除出 GitHub 的语言占比统计 ---
+build/**            linguist-vendored
+third_party/**      linguist-vendored
