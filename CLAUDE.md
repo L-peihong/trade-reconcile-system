@@ -215,7 +215,7 @@ bash scripts/gen_bill.sh 2026-09-11   # 生成指定日期的模拟渠道账单
 1. **下单链路** ✅ —— `sql/schema.sql` → Product/Order 的 DAO → Service → Controller → curl 通
 2. **幂等 + 防超卖** ✅ —— `t_idempotent` + 条件更新 + 并发压测 ← 亮点①（验收：100 并发抢 50 库存，成功 50 / 拒绝 50 / 零超卖；幂等重放逐字节一致）
 3. **支付链路** ✅ —— 回调验签 + 幂等落库 + 订单状态流转 + 账户出账（事务）← 亮点②（验收：一笔订单一次扣款，流水/支付单/本地消息各 1 条；伪造签名 50001、篡改金额 50002、渠道重放幂等）
-4. **消息链路** —— 本地消息表 + MQ 投递 + 手动 ACK + 消费幂等 + 死信 ← 亮点③（t_local_message 的同事务写入已在链路③完成，投递/消费待做）
+4. **消息链路** ✅ —— 本地消息表 + MQ 投递 + 手动 ACK + 消费幂等 + 死信 ← 亮点③（验收：publisher confirm 确认送达；broker 断连重试 retry_count=5 后恢复送达；重复消费 skip；商户不可达重试 3 次后 nack 转死信，trade.dead.queue 兜底）
 5. **对账链路** —— `gen_bill.sh` + 日终任务 + 差异查询/核销 ← 亮点④
 6. **收尾** —— 单测补全 + `smoke_test.sh` + `docs/design.md` + README
 
@@ -714,7 +714,7 @@ dbClient->execSqlAsync(sql, [self = shared_from_this()](const Result& r) { ... }
 
   **⚠️ 实测教训（2026-09-13）：devcontainer 的 `TZ=Asia/Shanghai` 环境变量未生效**（容器内日志仍 UTC）。因此**应用侧代码不要依赖进程 TZ** —— 生成时间一律显式 UTC+8（`gmtime_r` + 8 小时，中国无夏令时，固定偏移精确），与 MySQL 的 `--default-time-zone=+8:00` 对齐（`OrderService::dbTimeAfter` 即此写法）。
 - **devcontainer 访问宿主机 compose 服务用 `host.docker.internal`**（Docker Desktop 自动映射，实测解析 192.168.65.254，免容器重建）。config.json 的中间件 host 已改用它。**代价**：compose 的 app 服务（一键部署）跑在 compose 网络里，需要服务名而非 host.docker.internal —— 该模式上线时需换配置，收尾阶段解决。症状自查：连中间件报 `Failed to connect to 0.0.0.0` = 主机名解析失败。
-- **宿主 3306 被 Windows 原生 MySQL 占用**（2026-09-13 实测）。host.docker.internal 经 vpnkit 转发到宿主回环，会撞上原生服务 —— 表现为 TCP 已建立、握手卡死、无任何报错、事务等连接超时。compose 的 MySQL 因此映射 **3307→3306**，config.json 的 db port 用 3307。
+- **宿主 3306/5672/15672 被 Windows 原生服务栈占用**（2026-09-13 实测，同一 PID 19888 同时监听三者）。host.docker.internal 经 vpnkit 转发到宿主回环，会撞上原生服务 —— 3306 表现为 TCP 建立后握手卡死、事务等连接超时；5672/15672 表现为 **Docker Desktop 端口冲突时容器照常启动、映射静默失效**（`docker compose ps` 不显示宿主机映射）。对策一律是换宿主端口、不碰原生服务：compose 里 MySQL **3307→3306**、RabbitMQ **5673→5672 / 15673→15672**，config.json 的 db port 用 3307、rabbitmq.port 用 5673。
 - V1 **不配置 redis_clients**：V1 不用 Redis，且实测 Redis 不可达时 Drogon 重连循环导致段错误崩溃（2026-09-13）。链路④⑤需要分布式锁时再恢复，host 用 host.docker.internal。
 - **重建容器后 `/usr/local` 会被清空**（2026-09-13 实踩：Drogon 丢失、构建瘫痪）。postCreateCommand 必须重装 Drogon —— packagecloud 源 404 时整条链会中断，devcontainer.json 已改为「packagecloud 失败 → 自动源码编译 v1.9.13」的幂等链；若手动恢复，用注释里的源码编译段。build/ 是 named volume 不丢，Drogon 装回后不用全量重编。
 - **drogon 1.9.13 的 MySQL 探测只认 MariaDB 布局且静默失败**（CMakeLists.txt:404-407 注 "only mariadb client library is supported"，`find_package(MySQL QUIET)`）。Ubuntu 的 MariaDB 头文件在 `/usr/include/mariadb`，内置 FindMySQL 默认搜不到 → **编译时静默禁用 MySQL**，运行时才报 "The Mysql is not supported in current drogon build"（2026-09-13 实踩）。修复：装 `libmariadb-dev` + cmake 显式传 `-DMySQL_INCLUDE_DIR=/usr/include/mariadb -DMySQL_LIBRARY=/usr/lib/x86_64-linux-gnu/libmariadb.so`；**验收标志是 configure 输出出现 "Ok! We find mariadb!"，没有这句就别 make**（devcontainer.json 已固化此修复）。装好 libmariadb-dev 后探测可自行命中，提示参数可不传。

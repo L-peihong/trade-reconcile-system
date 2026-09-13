@@ -179,7 +179,16 @@ models::Result<Json::Value> PaymentService::handleCallback(
         message.routingKey = rabbitCfg.isMember("routing_key_notify")
                                  ? rabbitCfg["routing_key_notify"].asString()
                                  : "order.paid";
-        message.payload    = order->toJson().toStyledString();
+        // 消息体是消费契约（NotifyConsumer 依赖这些字段）：messageId 是消费端
+        // 幂等键（t_notify_record.uk_message_id），改字段必须同步消费端解析。
+        Json::Value payload;
+        payload["messageId"] = message.messageId;
+        payload["bizType"]   = kBizTypeOrderPaid;
+        payload["orderNo"]   = order->orderNo;
+        payload["amount"]    = utils::fenToYuanString(order->totalAmountFen);
+        payload["userId"]    = static_cast<Json::UInt64>(order->userId);
+        payload["status"]    = 1;  // 已支付
+        message.payload      = payload.toStyledString();
         localMessageDao_->insert(tx, message);
 
         // ---- 7. 显式提交（CLAUDE.md 4.1）----

@@ -61,8 +61,10 @@ services:
       RABBITMQ_DEFAULT_USER: guest
       RABBITMQ_DEFAULT_PASS: guest
     ports:
-      - "5672:5672"      # AMQP
-      - "15672:15672"    # 管理台 http://localhost:15672
+      # 宿主 5672/15672 被原生服务占用（2026-09-13 实测，PID 19888 同时监听
+      # 3306/5672/15672），Docker Desktop 冲突时容器照跑但映射静默失效。改 5673/15673。
+      - "5673:5672"      # AMQP（config.json 的 rabbitmq.port 已改 5673）
+      - "15673:15672"    # 管理台 http://localhost:15673
     volumes:
       - rabbitmq-data:/var/lib/rabbitmq
     healthcheck:

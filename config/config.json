@@ -60,7 +60,7 @@
 
     "rabbitmq": {
       "host": "host.docker.internal",
-      "port": 5672,
+      "port": 5673,
       "user": "guest",
       "password": "guest",
       "vhost": "/",
@@ -72,7 +72,8 @@
       "routing_key_notify": "order.paid",
       "routing_key_dead": "order.dead",
       "publisher_confirms": true,
-      "prefetch_count": 1
+      "prefetch_count": 1,
+      "notify_base_url": "http://localhost:8080"
     }
   }
 }

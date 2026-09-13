@@ -16,8 +16,10 @@
 
 #include "common/Logger.h"
 #include "common/RequestIdFilter.h"
+#include "consumer/NotifyConsumer.h"
 #include "controllers/HealthController.h"
 #include "controllers/OrderController.h"
+#include "tasks/MessageRelayTask.h"
 #include "utils/ThreadPool.h"
 
 namespace {
@@ -100,6 +102,18 @@ int main(int argc, char* argv[]) {
     //    必须在 loadConfigFile **之后**调用，否则会被配置里的值覆盖回去。
     // ------------------------------------------------------------------------
     drogon::app().setThreadNum(kIoThreads);
+
+    // ------------------------------------------------------------------------
+    // 7. 定时任务：本地消息表投递（链路④，CLAUDE.md 3.6 里程碑 4）。
+    //    定时器回调只做防重入+提交线程池，实际投递在池线程（6.6/6.8）。
+    // ------------------------------------------------------------------------
+    tasks::MessageRelayTask::instance().start();
+
+    // ------------------------------------------------------------------------
+    // 8. MQ 消费者：下游通知（手动 ACK + 幂等 + 死信，CLAUDE.md 6.2）。
+    //    独立常驻线程,阻塞式消费循环 —— 不在事件循环上。
+    // ------------------------------------------------------------------------
+    consumer::NotifyConsumer::instance().start();
 
     log->info("trade_server starting: config={} io_threads={} pool_threads={}",
               configPath, kIoThreads, utils::globalThreadPool().threadCount());
