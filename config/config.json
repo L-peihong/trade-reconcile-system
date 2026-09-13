@@ -2,10 +2,12 @@
   "_comment": "高可靠交易与对账系统 - Drogon 主配置。本文件必须保持严格 JSON：Drogon 用 jsoncpp 的非宽松模式解析，写 // 注释会导致启动直接失败（自定义说明请放到 _readme 这类键里，Drogon 会把它归入 customConfig 而不报错）。",
 
   "_readme": {
-    "host_aliases": "mysql / redis / rabbitmq 是 Docker Compose 的服务名。按 CLAUDE.md 第 1 节的分工，中间件跑在宿主机上，所以这三个名字在 Dev Container 内默认解析不了。devcontainer.json 里已用 --add-host=<name>:host-gateway 把它们指向宿主机网关，因此本配置在『app 跑在 compose 里』和『app 跑在 Dev Container 里』两种模式下都无需修改。",
+    "host_aliases": "中间件跑在宿主机 compose 里，Dev Container 不在 compose 网络内，解析不到 mysql/redis/rabbitmq 服务名。所以本配置（Dev Container 模式）统一用 host.docker.internal —— Docker Desktop 自动映射，实测解析 192.168.65.254，免容器重建（2026-09-13）。⚠️ compose 的 app 服务（一键部署）跑在 compose 网络里，需要服务名而非 host.docker.internal —— 该模式上线时需换配置，收尾阶段解决。",
+    "mysql_port": "3307 而非 3306：宿主机 3306 被 Windows 原生 MySQL 占用（2026-09-13 实测），且 host.docker.internal 转发到宿主回环会撞上它。compose 里 MySQL 映射 3307→3306。",
     "secret": "root123 / guest 仅供本地开发。真实环境必须走环境变量或密钥管理，绝不能把口令提交进仓库。",
     "is_fast": "必须保持 false，禁止改成 true —— is_fast=true 启用 DbClientLockFree（1.9 默认客户端），其同步事务接口 newTransaction() 直接 assert(0)（DbClientLockFree.cc:232-241），execSqlSync 在 IO 线程死锁（SqlBinder.cc:80-120）。这不是性能开关，是客户端实现的二选一。见 CLAUDE.md 4.1 / 6.6。",
-    "custom_section": "rabbitmq 不是 Drogon 的内置配置段，会被归入 customConfig，用 drogon::app().getCustomConfig()[\"rabbitmq\"] 读取。"
+    "custom_section": "rabbitmq 不是 Drogon 的内置配置段，会被归入 customConfig，用 drogon::app().getCustomConfig()[\"rabbitmq\"] 读取。",
+    "redis_removed": "V1 已移除 redis_clients —— V1 不用 Redis，且实测 Redis 主机不可达时 Drogon 的重连循环导致进程段错误崩溃（2026-09-13）。链路④⑤需要分布式锁时再恢复；host 用 host.docker.internal。"
   },
 
   "listeners": [
@@ -21,8 +23,8 @@
     {
       "name": "default",
       "rdbms": "mysql",
-      "host": "mysql",
-      "port": 3306,
+      "host": "host.docker.internal",
+      "port": 3307,
       "dbname": "trade_reconcile",
       "user": "root",
       "passwd": "root123",
@@ -31,19 +33,6 @@
       "connection_number": 4,
       "is_fast": false,
       "filename": ""
-    }
-  ],
-
-  "redis_clients": [
-    {
-      "name": "default",
-      "host": "redis",
-      "port": 6379,
-      "passwd": "",
-      "db": 0,
-      "is_fast": false,
-      "timeout": 5.0,
-      "connection_number": 4
     }
   ],
 
@@ -62,7 +51,7 @@
   },
 
   "rabbitmq": {
-    "host": "rabbitmq",
+    "host": "host.docker.internal",
     "port": 5672,
     "user": "guest",
     "password": "guest",

@@ -17,13 +17,18 @@ services:
     container_name: trade-mysql
     environment:
       MYSQL_ROOT_PASSWORD: root123
+      # 必须设置：app 从宿主机网关(host.docker.internal)连进来，默认的
+      # root@localhost 不匹配 → Access denied（2026-09-13 实踩，事务连接超时）。
+      MYSQL_ROOT_HOST: "%"
       TZ: Asia/Shanghai            # CLAUDE.md 6.7：容器默认 UTC 会让对账错位一天
     command:
       - --default-time-zone=+8:00  # 会话时区：与 app 侧 TZ 对齐（修正 3 的前提）
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_0900_ai_ci
     ports:
-      - "3306:3306"
+      # 宿主 3306 被原生 MySQL 占用(2026-09-13 实测,PID 监听 127.0.0.1:3306)，
+      # 且 host.docker.internal 会转发到宿主回环 → 撞上原生服务。改映射 3307。
+      - "3307:3306"
     volumes:
       - mysql-data:/var/lib/mysql
       - ./sql:/docker-entrypoint-initdb.d   # schema.sql + seed.sql，卷初始化时执行一次
@@ -67,7 +72,9 @@ services:
       retries: 30
 
   # 一键部署演示用。日常开发不需要（app 在 Dev Container 内运行）。
-  # compose 网络内 mysql/redis/rabbitmq 服务名可直接解析，config.json 无需改动。
+  # ⚠️ 待办：当前 config/config.json 的中间件 host 是 host.docker.internal
+  #    （Dev Container 模式），在 compose 网络内会解析错 —— 一键部署模式上线前
+  #    需要换成服务名（config.compose.json 或环境覆盖），收尾阶段解决。
   app:
     build: .
     image: trade-server:latest

@@ -14,14 +14,15 @@ std::size_t ProductDao::deductStock(
     //   AND status = 1    —— 下架商品不可售。
     // 禁止先 SELECT 再 UPDATE（TOCTOU）；也禁止 SELECT ... FOR UPDATE
     // （间隙锁放大锁冲突）。version 自增只是辅助审计，不参与判定。
-    const auto result = tx->execSqlSync(
+    // execSqlSync 返回 Result **值**（非指针），用 `.` 访问
+    auto result = tx->execSqlSync(
         "UPDATE t_product"
         "   SET stock = stock - ?, version = version + 1, updated_at = NOW()"
         " WHERE id = ? AND stock >= ? AND status = 1",
         static_cast<long long>(quantity),
         static_cast<long long>(productId),
         static_cast<long long>(quantity));
-    return result->affectedRows();
+    return result.affectedRows();
 }
 
 std::optional<models::Product> ProductDao::getById(
@@ -29,25 +30,25 @@ std::optional<models::Product> ProductDao::getById(
     std::uint64_t productId) {
 
     // DECIMAL 不经 double 中转（CLAUDE.md 6.5）：SQL 内 CAST 成「分」取回 int64
-    const auto result = tx->execSqlSync(
+    auto result = tx->execSqlSync(
         "SELECT id, product_no, name,"
         "       CAST(price * 100 AS SIGNED) AS price_fen, stock, status"
         "  FROM t_product"
         " WHERE id = ?",
         static_cast<long long>(productId));
 
-    if (result->empty()) {
+    if (result.empty()) {
         return std::nullopt;
     }
 
-    const auto& row = (*result)[0];
+    const auto& row = result[0];
     models::Product p;
-    p.id        = static_cast<std::uint64_t>(row["id"].asInt64());
-    p.productNo = row["product_no"].asString();
-    p.name      = row["name"].asString();
-    p.priceFen  = row["price_fen"].asInt64();
-    p.stock     = row["stock"].asInt64();
-    p.status    = row["status"].asInt();
+    p.id        = static_cast<std::uint64_t>(row["id"].as<long long>());
+    p.productNo = row["product_no"].as<std::string>();
+    p.name      = row["name"].as<std::string>();
+    p.priceFen  = row["price_fen"].as<long long>();
+    p.stock     = row["stock"].as<long long>();
+    p.status    = row["status"].as<int>();
     return p;
 }
 

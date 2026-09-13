@@ -26,15 +26,15 @@ constexpr int kOrderExpireMinutes          = 30;
 constexpr int kIdempotentExpireMinutes     = 24 * 60;
 
 // 应用侧时间格式化（修正 3：expire_time 应用算好随 INSERT 写入，不回读 DB）。
-// 时区前提（CLAUDE.md 6.7）：进程 TZ=Asia/Shanghai（devcontainer / compose 已设）
-// 与 MySQL --default-time-zone=+8:00 对齐，两侧时间口径一致。
-// localtime_r 是 POSIX 接口 —— 本项目只在 Ubuntu 容器构建。
+// 时区策略：显式 UTC+8（北京时间），**不依赖进程 TZ** —— 实测容器内
+// TZ=Asia/Shanghai 环境变量未生效（日志仍 UTC），依赖 localtime 会与 MySQL
+// --default-time-zone=+8:00 差 8 小时。中国无夏令时，固定偏移精确（CLAUDE.md 6.7）。
 std::string dbTimeAfter(int minutes) {
     const auto tp = std::chrono::system_clock::now() +
-                    std::chrono::minutes(minutes);
+                    std::chrono::minutes(minutes) + std::chrono::hours(8);
     const std::time_t t = std::chrono::system_clock::to_time_t(tp);
     std::tm tmBuf{};
-    localtime_r(&t, &tmBuf);
+    gmtime_r(&t, &tmBuf);  // UTC 基准 + 8 小时 = 北京时间
     char buf[32];
     std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &tmBuf);
     return std::string(buf);
@@ -134,10 +134,17 @@ CreateOrderOutcome OrderService::createOrder(const models::CreateOrderReq& req) 
         orderDao_->insert(tx, order);
 
         // 5. 幂等快照写回（同事务：业务成功才留痕，失败一起回滚）
+        //    快照必须与首次在线响应的字节形态一致：drogon 的 newHttpJsonResponse
+        //    用 StreamWriterBuilder（commentStyle=None，默认紧凑）序列化，
+        //    这里用相同配置，保证重放响应与首次响应**逐字节一致**。
+        //    （2026-09-13 实测发现 toStyledString 是美化格式，重放时字节不同，已修）
         const auto response =
             models::Result<models::Order>::ok(order, req.requestId);
+        Json::StreamWriterBuilder builder;
+        builder["commentStyle"] = "None";
+        builder["indentation"] = "";   // 默认是 "\t"(美化),必须显式置空才紧凑
         idempotentDao_->markSuccess(
-            tx, req.requestId, response.toJson().toStyledString());
+            tx, req.requestId, Json::writeString(builder, response.toJson()));
 
         // 6. 显式提交（CLAUDE.md 4.1）：失败抛异常 → 析构兜底回滚
         txGuard.commit();
@@ -158,7 +165,8 @@ CreateOrderOutcome OrderService::createOrder(const models::CreateOrderReq& req) 
         return o;
     } catch (const drogon::orm::DrogonDbException& e) {
         // 技术细节进日志，message 只给通用话术（CLAUDE.md 4.3）
-        log->error("createOrder db error: {}", e.what());
+        // DrogonDbException 没有 what()，接口是 base().what()
+        log->error("createOrder db error: {}", e.base().what());
         CreateOrderOutcome o;
         o.result = models::Result<models::Order>::fail(
             common::ErrCode::kDbError,

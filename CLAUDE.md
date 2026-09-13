@@ -245,6 +245,8 @@ bash scripts/gen_bill.sh 2026-09-11   # 生成指定日期的模拟渠道账单
 - 事务内**任何一条 SQL 失败，Drogon 会自动 rollback**（`TransactionImpl.cc:124/232`）。guard 的显式 rollback 是兜底，与自动回滚叠加也安全。
 - **同步事务接口只在 `is_fast=false` 的客户端存在**（`DbClientLockFree.cc:232-241` 对 `newTransaction()` 直接 `assert(0)`）。config.json 的 `"is_fast": false` 不是性能选项，是客户端实现的二选一，**禁止改成 true**。
 - **Drogon 1.9.x 没有 `TransactionPtr` 类型别名**（v1.9.11 头文件只定义了 `DbClientPtr`）。事务参数统一写 `std::shared_ptr<drogon::orm::Transaction>`，写 `drogon::orm::TransactionPtr` 会编译失败（2026-09-11 实踩，已修复）。
+- **`execSqlSync` 返回 `Result` 值，不是 `ResultPtr`**（v1.9.11 签名：`Result execSqlSync(sql, args...)`）。结果用 `.affectedRows()` / `.empty()` / `result[0]` 访问，写 `->` 会编译失败（2026-09-13 实踩，已修复）。另有：**`DrogonDbException` 没有 `what()`**，接口是 `base().what()`。
+- **`row["col"]` 返回 `Field`，转换用模板 `as<T>()`**（如 `as<std::string>()` / `as<long long>()` / `as<int>()`），不是 jsoncpp 风格的 `asString()` / `asInt64()`（2026-09-13 实踩，已修复）。NULL 值 `as<T>()` 返回默认值不抛异常。
 
 #### TransactionGuard 契约（utils/DbUtil）
 
@@ -691,6 +693,7 @@ dbClient->execSqlAsync(sql, [self = shared_from_this()](const Result& r) { ... }
 - **注意循环引用**：`shared_ptr` 捕获进回调、回调又被对象持有 → 引用计数永不归零、内存泄漏。需要时用 `weak_ptr`。
 - 事务对象（`TransactionPtr`）在提交/回滚后即失效，**不要在延迟任务里持有它**。
 - **同步 DB API 禁止在 Drogon 事件循环线程调用**。已核对 v1.9.11 源码：`execSqlSync` 的 Blocking 模式在 `f.get()` 上阻塞等待结果（`SqlBinder.cc:80-120`），而 MySQL 结果依赖事件循环投递；fast 客户端（`is_fast=true`，1.9 默认）把 DbClient 绑定到 IO 循环上，在循环线程内调用同步接口必然死锁，其 `newTransaction()` 更是直接 `assert(0)`。**结论：Service 的同步事务统一跑在工作线程池（`utils::ThreadPool`）上，Controller 在 handler 里提交任务，用 `drogon::app().getLoop()->queueInLoop` 把响应切回循环线程。** 事务的 RAII 守卫契约见 4.1。
+- **drogon 1.9.11 在中间件不可达时进程段错误崩溃**（2026-09-13 实踩两次：Redis 连不上、MySQL 连不上各崩一次；连接失败路径 `MysqlConnection.cc:125-133` 记日志并调 closeCallback 后崩溃）。工程结论：①「DB 挂了进程不能崩」是硬要求 —— 升级 1.9.12/1.9.13 验证是否修复，未修复则应用层加保护（启动前探测中间件健康再注册客户端）；②部署侧配 restart 策略兜底；③验收期先保证中间件在线再起服务。
 
 ### 6.7 Windows 宿主机 + Docker 的换行符与时区
 
@@ -708,6 +711,14 @@ dbClient->execSqlAsync(sql, [self = shared_from_this()](const Result& r) { ... }
   environment:
     - TZ=Asia/Shanghai
   ```
+
+  **⚠️ 实测教训（2026-09-13）：devcontainer 的 `TZ=Asia/Shanghai` 环境变量未生效**（容器内日志仍 UTC）。因此**应用侧代码不要依赖进程 TZ** —— 生成时间一律显式 UTC+8（`gmtime_r` + 8 小时，中国无夏令时，固定偏移精确），与 MySQL 的 `--default-time-zone=+8:00` 对齐（`OrderService::dbTimeAfter` 即此写法）。
+- **devcontainer 访问宿主机 compose 服务用 `host.docker.internal`**（Docker Desktop 自动映射，实测解析 192.168.65.254，免容器重建）。config.json 的中间件 host 已改用它。**代价**：compose 的 app 服务（一键部署）跑在 compose 网络里，需要服务名而非 host.docker.internal —— 该模式上线时需换配置，收尾阶段解决。症状自查：连中间件报 `Failed to connect to 0.0.0.0` = 主机名解析失败。
+- **宿主 3306 被 Windows 原生 MySQL 占用**（2026-09-13 实测）。host.docker.internal 经 vpnkit 转发到宿主回环，会撞上原生服务 —— 表现为 TCP 已建立、握手卡死、无任何报错、事务等连接超时。compose 的 MySQL 因此映射 **3307→3306**，config.json 的 db port 用 3307。
+- V1 **不配置 redis_clients**：V1 不用 Redis，且实测 Redis 不可达时 Drogon 重连循环导致段错误崩溃（2026-09-13）。链路④⑤需要分布式锁时再恢复，host 用 host.docker.internal。
+- **重建容器后 `/usr/local` 会被清空**（2026-09-13 实踩：Drogon 丢失、构建瘫痪）。postCreateCommand 必须重装 Drogon —— packagecloud 源 404 时整条链会中断，devcontainer.json 已改为「packagecloud 失败 → 自动源码编译 v1.9.13」的幂等链；若手动恢复，用注释里的源码编译段。build/ 是 named volume 不丢，Drogon 装回后不用全量重编。
+- **drogon 1.9.13 的 MySQL 探测只认 MariaDB 布局且静默失败**（CMakeLists.txt:404-407 注 "only mariadb client library is supported"，`find_package(MySQL QUIET)`）。Ubuntu 的 MariaDB 头文件在 `/usr/include/mariadb`，内置 FindMySQL 默认搜不到 → **编译时静默禁用 MySQL**，运行时才报 "The Mysql is not supported in current drogon build"（2026-09-13 实踩）。修复：装 `libmariadb-dev` + cmake 显式传 `-DMySQL_INCLUDE_DIR=/usr/include/mariadb -DMySQL_LIBRARY=/usr/lib/x86_64-linux-gnu/libmariadb.so`；**验收标志是 configure 输出出现 "Ok! We find mariadb!"，没有这句就别 make**（devcontainer.json 已固化此修复）。装好 libmariadb-dev 后探测可自行命中，提示参数可不传。
+- **`libmariadb-dev` 与 `libmysqlclient-dev` 冲突，装前者会卸后者**（2026-09-13 实踩），而 `mysqlclient.pc` 只由后者提供 → 干净缓存下 configure 报 "No package 'mysqlclient' found"，脏缓存下则报 "includes non-existent path"。修复方案：**项目改用 `libmariadb.pc`**（CMakeLists 的 pkg_check_modules 用 `libmariadb`，与 drogon 1.9.13 的 mariadb-only 立场一致）+ `ln -sfn /usr/include/mariadb /usr/include/mysql`（drogon 的 FindMySQL 需要）。devcontainer.json 已固化（不装 libmysqlclient-dev，apt 后自动建链接）。
 
   MySQL 端同样要把时区参数带上，JDBC/Drogon 连接串加 `charset=utf8mb4`，MySQL 8 默认排序规则已是 `utf8mb4_0900_ai_ci`，但**连接字符集仍需显式声明**，否则中文商品名可能乱码。
 - 挂载源码进容器时，Windows 文件系统 IO 很慢。**构建产物 `build/` 用 named volume 而非 bind mount**，否则编译慢到不可用。

@@ -8,7 +8,8 @@ IdempotentOutcome IdempotentDao::tryAcquire(
     const std::shared_ptr<drogon::orm::Transaction>& tx,
     const models::Idempotent& record) {
 
-    const auto insertResult = tx->execSqlSync(
+    // execSqlSync 返回 Result **值**（非指针），用 `.` 访问
+    auto insertResult = tx->execSqlSync(
         "INSERT INTO t_idempotent"
         " (request_id, user_id, api_path, request_hash, status, expire_time)"
         " VALUES (?, ?, ?, ?, 0, ?)"
@@ -19,23 +20,23 @@ IdempotentOutcome IdempotentDao::tryAcquire(
         record.requestHash,
         record.expireTime);
 
-    if (insertResult->affectedRows() == 1) {
+    if (insertResult.affectedRows() == 1) {
         return {IdempotentOutcome::Kind::kAcquired, ""};
     }
 
     // 唯一键冲突：查状态定生死（CLAUDE.md 5.6）
-    const auto query = tx->execSqlSync(
+    auto query = tx->execSqlSync(
         "SELECT status, response_body FROM t_idempotent WHERE request_id = ?",
         record.requestId);
-    if (query->empty()) {
+    if (query.empty()) {
         // 理论不可达（刚插入又查不到），保守按「处理中」返回，让客户端重试
         return {IdempotentOutcome::Kind::kProcessing, ""};
     }
 
-    const auto& row = (*query)[0];
-    if (row["status"].asInt() == 1) {
+    const auto& row = query[0];
+    if (row["status"].as<int>() == 1) {
         return {IdempotentOutcome::Kind::kCachedSuccess,
-                row["response_body"].asString()};
+                row["response_body"].as<std::string>()};
     }
     return {IdempotentOutcome::Kind::kProcessing, ""};
 }

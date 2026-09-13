@@ -6,7 +6,8 @@
 //   Dev Container   →  编译、测试、运行 C++ 服务
 //
 // 因此 MySQL / Redis / RabbitMQ 由宿主机上的 docker compose 提供，
-// 容器内通过 host.docker.internal 访问。详见 "containerEnv" 处的说明。
+// 容器内通过 host.docker.internal 访问（Docker Desktop 自动映射，
+// 实测解析 192.168.65.254，免容器重建）。config.json 的中间件 host 已改为它。
 // ============================================================================
 {
   "name": "trade-reconcile-system (Ubuntu 22.04 / C++17 / Drogon)",
@@ -82,7 +83,7 @@
   // 其后的 `apt-get install -y drogon` 整段替换成下面脚本（约 10–20 分钟）：
   //
   //   apt-get install -y --no-install-recommends git \
-  //     && git clone --depth 1 --branch v1.9.11 \
+  //     && git clone --depth 1 --branch v1.9.13 \
   //          https://github.com/drogonframework/drogon.git /tmp/drogon \
   //     && cd /tmp/drogon && git submodule update --init --recursive \
   //     && mkdir -p build && cd build \
@@ -99,7 +100,11 @@
   //      _GLIBCXX_USE_CXX11_ABI 一致，否则会出现一连串 std::string 相关的
   //      undefined reference —— 这类报错的真因就是 ABI 不匹配，不是缺库。
   // ---------------------------------------------------------------------------
-  "postCreateCommand": "apt-get update && apt-get install -y --no-install-recommends build-essential cmake ninja-build git curl wget ca-certificates gnupg gdb pkg-config libssl-dev zlib1g-dev uuid-dev libjsoncpp-dev libmysqlclient-dev libhiredis-dev librabbitmq-dev libc-ares-dev libbrotli-dev libspdlog-dev libgtest-dev libpq-dev && curl -fsSL https://packagecloud.io/install/repositories/drogonframework/drogon/script.deb.sh | bash && apt-get install -y --no-install-recommends drogon && ldconfig && (drogon_ctl version || echo '[WARN] drogon_ctl 不可用，请检查 Drogon 是否安装成功') && rm -rf /var/lib/apt/lists/*",
+  // ⚠️ 2026-09-13 实踩：packagecloud 源 404 导致 postCreateCommand 整条链中断，
+  //    容器重建后 Drogon 丢失、环境瘫痪。已改为带 fallback 的幂等链：
+  //    packagecloud 失败 → 自动源码编译 Drogon v1.9.13。
+  //    另补 mariadb-client（压测脚本 scripts/stress_stock.sh 的依赖）。
+  "postCreateCommand": "bash -c 'set -e; apt-get update && apt-get install -y --no-install-recommends build-essential cmake ninja-build git curl ca-certificates gnupg gdb pkg-config libssl-dev zlib1g-dev uuid-dev libjsoncpp-dev libhiredis-dev librabbitmq-dev libc-ares-dev libbrotli-dev libspdlog-dev libgtest-dev libpq-dev libmariadb-dev mariadb-client && ln -sfn /usr/include/mariadb /usr/include/mysql && { (curl -fsSL https://packagecloud.io/install/repositories/drogonframework/drogon/script.deb.sh | bash && apt-get install -y --no-install-recommends drogon) || (echo \"[WARN] packagecloud 不可用, 改为源码编译 Drogon v1.9.13\"; cd /tmp; git clone --depth 1 --branch v1.9.13 https://github.com/drogonframework/drogon.git; cd drogon; git submodule update --init --recursive; mkdir -p build; cd build; cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr/local -DBUILD_EXAMPLES=OFF -DBUILD_CTL=OFF -DBUILD_TESTING=OFF -DBUILD_DOC=OFF -DBUILD_REDIS=ON -DBUILD_MYSQL=ON -DBUILD_SQLITE=OFF; make -j$(nproc); make install; ldconfig; cd /tmp; rm -rf drogon); }; ldconfig; rm -rf /var/lib/apt/lists/*'",
 
   // ---------------------------------------------------------------------------
   // 端口转发

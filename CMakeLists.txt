@@ -58,14 +58,17 @@ find_package(GTest REQUIRED)
 # 统一走 pkg-config 解析。
 #
 # 若这里报 not found，先用下面命令确认包名（不同发行版 pc 文件名不一样）：
-#   pkg-config --list-all | grep -Ei 'mysql|hiredis|rabbit'
-# 常见对应关系（Ubuntu 22.04）：
-#   libmysqlclient-dev → mysqlclient.pc
-#   libhiredis-dev     → hiredis.pc
-#   librabbitmq-dev    → librabbitmq.pc
+#   pkg-config --list-all | grep -Ei 'mysql|mariadb|hiredis|rabbit'
+# 对应关系（Ubuntu 22.04）：
+#   libmariadb-dev  → libmariadb.pc（⚠️ 与 libmysqlclient-dev 冲突，装前者会卸后者，
+#                      mysqlclient.pc 随之消失，2026-09-13 实踩。项目统一用 libmariadb.pc，
+#                     与 drogon 1.9.13 的 mariadb-only 立场一致）
+#   libhiredis-dev  → hiredis.pc
+#   librabbitmq-dev → librabbitmq.pc
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(JSONCPP REQUIRED IMPORTED_TARGET jsoncpp)
-pkg_check_modules(MYSQLCLIENT REQUIRED IMPORTED_TARGET mysqlclient)
+# 变量名沿用 MYSQLCLIENT，避免下游链接行改动
+pkg_check_modules(MYSQLCLIENT REQUIRED IMPORTED_TARGET libmariadb)
 pkg_check_modules(HIREDIS     REQUIRED IMPORTED_TARGET hiredis)
 pkg_check_modules(RABBITMQ    REQUIRED IMPORTED_TARGET librabbitmq)
 

@@ -37,7 +37,8 @@ std::optional<models::Order> OrderDao::getByOrderNo(
 
     // DECIMAL 在 SQL 内 CAST 成「分」取回（CLAUDE.md 6.5）；
     // 时间列统一 DATE_FORMAT 成字符串，不经驱动的时间类型中转。
-    const auto result = tx->execSqlSync(
+    // execSqlSync 返回 Result **值**（非指针），用 `.` 访问
+    auto result = tx->execSqlSync(
         "SELECT order_no, request_id, user_id, product_id, quantity,"
         "       CAST(unit_price * 100 AS SIGNED)   AS unit_price_fen,"
         "       CAST(total_amount * 100 AS SIGNED) AS total_amount_fen,"
@@ -48,22 +49,22 @@ std::optional<models::Order> OrderDao::getByOrderNo(
         " WHERE order_no = ?",
         orderNo);
 
-    if (result->empty()) {
+    if (result.empty()) {
         return std::nullopt;
     }
 
-    const auto& row = (*result)[0];
+    const auto& row = result[0];
     models::Order o;
-    o.orderNo        = row["order_no"].asString();
-    o.requestId      = row["request_id"].asString();
-    o.userId         = static_cast<std::uint64_t>(row["user_id"].asInt64());
-    o.productId      = static_cast<std::uint64_t>(row["product_id"].asInt64());
-    o.quantity       = row["quantity"].asInt64();
-    o.unitPriceFen   = row["unit_price_fen"].asInt64();
-    o.totalAmountFen = row["total_amount_fen"].asInt64();
-    o.status         = static_cast<models::OrderStatus>(row["status"].asInt());
-    o.expireTime     = row["expire_time"].asString();
-    o.paidAt         = row["paid_at"].asString();
+    o.orderNo        = row["order_no"].as<std::string>();
+    o.requestId      = row["request_id"].as<std::string>();
+    o.userId         = static_cast<std::uint64_t>(row["user_id"].as<long long>());
+    o.productId      = static_cast<std::uint64_t>(row["product_id"].as<long long>());
+    o.quantity       = row["quantity"].as<long long>();
+    o.unitPriceFen   = row["unit_price_fen"].as<long long>();
+    o.totalAmountFen = row["total_amount_fen"].as<long long>();
+    o.status         = static_cast<models::OrderStatus>(row["status"].as<int>());
+    o.expireTime     = row["expire_time"].as<std::string>();
+    o.paidAt         = row["paid_at"].as<std::string>();
     return o;
 }
 

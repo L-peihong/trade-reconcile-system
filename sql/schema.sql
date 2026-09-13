@@ -21,6 +21,16 @@ USE trade_reconcile;
 SET NAMES utf8mb4;
 
 -- ---------------------------------------------------------------------------
+-- 驱动兼容（2026-09-13 实踩）：Drogon 的 MySQL 客户端（容器内是 MariaDB
+-- 客户端库）未启用服务器公钥获取/TLS（MysqlConnection.cc:62-64 只有
+-- NONBLOCK/RECONNECT），连不上 caching_sha2_password 的完整认证，表现为
+-- 事务等连接超时（"Timeout, no connection available for transaction"）。
+-- 开发环境统一用 mysql_native_password（MySQL 8 仍支持，仅弃用告警）。
+-- 前提：docker-compose.yml 已设 MYSQL_ROOT_HOST="%"（init 时创建 root@'%'）。
+-- ---------------------------------------------------------------------------
+ALTER USER 'root'@'%' IDENTIFIED WITH mysql_native_password BY 'root123';
+
+-- ---------------------------------------------------------------------------
 -- 5.1 t_account 账户表
 -- V1 只做入账/出账；冻结/解冻（frozen_amount、status=1）属 V1.5，字段预留。
 -- ---------------------------------------------------------------------------
