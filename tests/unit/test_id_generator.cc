@@ -1,6 +1,4 @@
-// ============================================================================
-// 雪花 ID 生成器单测 —— 订单号唯一性/递增性/线程安全是幂等与对账的基石
-// ============================================================================
+// 雪花 ID 单测：唯一性/递增性/线程安全是幂等与对账的基石
 #include <gtest/gtest.h>
 
 #include <mutex>
@@ -14,7 +12,7 @@
 TEST(IdGeneratorTest, FormatConstraints) {
     const std::string id = utils::IdGenerator::nextId();
     EXPECT_FALSE(id.empty());
-    EXPECT_LE(id.size(), 19);  // 64 位无符号十进制上限 20 位，雪花首位为 0 → ≤19
+    EXPECT_LE(id.size(), 19);  // 64 位十进制上限 20 位，雪花首位为 0，最多 19 位
     for (const char c : id) {
         EXPECT_TRUE(c >= '0' && c <= '9') << "雪花 ID 必须是纯数字: " << id;
     }

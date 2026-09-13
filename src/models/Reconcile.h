@@ -1,7 +1,5 @@
-// ============================================================================
-// 对账模型（CLAUDE.md 5.9/5.10）—— 纯数据结构
-// 金额一律「分」int64_t（CLAUDE.md 6.5）。
-// ============================================================================
+// 对账模型，纯数据结构。
+// 金额一律「分」int64_t。
 #pragma once
 
 #include <cstdint>
@@ -13,7 +11,7 @@
 
 namespace models {
 
-// 差异类型（t_reconcile_diff.diff_type，CLAUDE.md 5.10）
+// 差异类型（t_reconcile_diff.diff_type）
 enum class ReconcileDiffType : int {
     kLocalOnly     = 1,  // 本地多单
     kChannelOnly   = 2,  // 渠道多单
@@ -72,7 +70,7 @@ struct ReconcileBatch {
     };
 
     std::string batchNo;
-    std::string billDate;   // 账单日期（渠道口径，CLAUDE.md 6.9）
+    std::string billDate;   // 账单日期，按渠道口径归集
     std::string channel = "MOCK";
     std::int64_t totalCount = 0;         // 本地侧笔数
     std::int64_t totalAmountFen = 0;     // 本地侧总额

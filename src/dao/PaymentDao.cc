@@ -11,8 +11,7 @@ PaymentInsertOutcome PaymentDao::insertWithDedup(
     const models::Payment& payment) {
 
     // uk_channel_trade(channel, channel_trade_no) 兜底渠道重复回调；
-    // callback_time 用**渠道时间戳**（对账口径，CLAUDE.md 6.9），
-    // 应用侧转换好的北京时间字符串入参。
+    // callback_time 用渠道时间戳，应用侧转成北京时间字符串后入参（对账按此归集）。
     auto result = tx->execSqlSync(
         "INSERT INTO t_payment"
         " (payment_no, order_no, channel, channel_trade_no,"

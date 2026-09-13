@@ -1,7 +1,5 @@
-// ============================================================================
-// 本地消息表 DAO —— 与业务写操作同事务 INSERT（CLAUDE.md 6.3）
-// 投递由链路④的 MessageRelayTask 完成，本 DAO 只管落库。
-// ============================================================================
+// 本地消息表 DAO。与业务写操作同事务 INSERT，
+// 投递由 MessageRelayTask 完成，这里只管落库。
 #pragma once
 
 #include <memory>
@@ -20,8 +18,7 @@ public:
     void insert(const std::shared_ptr<drogon::orm::Transaction>& tx,
                 const models::LocalMessage& message);
 
-    // ---- 以下为投递侧接口（MessageRelayTask 使用），非事务单条操作，
-    //      在工作线程池线程上调用（CLAUDE.md 6.6）。----
+    // ---- 以下为投递侧接口（MessageRelayTask 用），非事务单条操作 ----
 
     // 扫描待发送且到期的消息（status=0 AND next_retry_time <= NOW()），按 id 升序。
     std::vector<models::LocalMessage> scanPending(int limit);

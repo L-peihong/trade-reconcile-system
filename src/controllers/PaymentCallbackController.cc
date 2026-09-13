@@ -37,7 +37,7 @@ void PaymentCallbackController::handleCallback(
     const drogon::HttpRequestPtr& request,
     std::function<void(const drogon::HttpResponsePtr&)>&& callback) {
 
-    const std::string requestId = common::requestIdOf(request);  // filter 已保证合法
+    const std::string requestId = common::requestIdOf(request);  // 已经过 filter 校验
     auto log = common::Logger::withRequestId(requestId);
 
     const auto json = request->getJsonObject();
@@ -64,7 +64,7 @@ void PaymentCallbackController::handleCallback(
 
     const std::string rawBody = std::string(request->body());
 
-    // 线程模型（CLAUDE.md 4.1/6.6）：同步事务丢线程池；lambda 只按值捕获。
+    // 同步事务丢线程池执行，lambda 只按值捕获
     const bool submitted = utils::globalThreadPool().submit(
         [req, rawBody, callback = std::move(callback)]() mutable {
             services::PaymentService service;

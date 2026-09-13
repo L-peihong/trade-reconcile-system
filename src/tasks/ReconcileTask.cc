@@ -18,7 +18,7 @@ namespace {
 constexpr double kCheckIntervalSeconds = 60.0;
 constexpr const char* kChannel = "MOCK";
 
-// 北京时间日期（显式 UTC+8，不依赖进程 TZ —— CLAUDE.md 6.7）
+// 北京时间（显式 UTC+8，不依赖进程 TZ）
 std::string todayBeijing() {
     const auto tp = std::chrono::system_clock::now() + std::chrono::hours(8);
     const std::time_t t = std::chrono::system_clock::to_time_t(tp);
@@ -59,7 +59,7 @@ void ReconcileTask::checkAndRun() {
     const std::string billDate = todayBeijing();
     const std::string billPath = "scripts/bills/bill_" + billDate + ".csv";
 
-    // 账单文件不存在 → 静默跳过（等 gen_bill.sh 生成后下轮自动跑）
+    // 账单文件没生成，静默跳过，等下一轮
     std::ifstream probe(billPath);
     if (!probe.is_open()) {
         return;
@@ -67,7 +67,7 @@ void ReconcileTask::checkAndRun() {
 
     dao::ReconcileDao dao;
     if (dao.hasBatchForDate(billDate, kChannel)) {
-        return;  // 今天已对账（uk_date_channel 兜底）
+        return;  // 今天已对过账，唯一索引兜底
     }
 
     services::ReconcileService service;

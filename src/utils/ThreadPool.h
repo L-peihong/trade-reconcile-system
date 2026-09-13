@@ -1,11 +1,7 @@
-// ============================================================================
-// 固定大小工作线程池
-//
-// 为什么存在（CLAUDE.md 4.1 / 6.6）：
-// Drogon 事件循环线程禁止调用同步 DB API —— fast 客户端下 execSqlSync 在
-// 循环线程死锁、newTransaction() 直接 assert(0)。Service 层的同步事务
-// 统一提交到本池执行：Controller handler 只 submit，不阻塞循环线程。
-// ============================================================================
+// 固定大小工作线程池。
+// Drogon 事件循环线程不能跑同步 DB API（fast 客户端下 execSqlSync 死锁、
+// newTransaction 直接 assert），Service 的同步事务统一丢到这个池里执行，
+// Controller handler 只 submit，不阻塞循环线程。
 #pragma once
 
 #include <condition_variable>
@@ -21,7 +17,7 @@ namespace utils {
 class ThreadPool {
 public:
     explicit ThreadPool(std::size_t threadCount = 8);
-    ~ThreadPool();  // 停止接收任务并 join 所有工作线程
+    ~ThreadPool();  // 停止收任务并 join 所有线程
 
     ThreadPool(const ThreadPool&) = delete;
     ThreadPool& operator=(const ThreadPool&) = delete;
@@ -41,8 +37,7 @@ private:
     std::vector<std::thread> threads_;
 };
 
-// 全局单例（8 线程）。main 里显式调用一次以预热（首次静态初始化也在 C++11
-// 起线程安全，但显式调用让「池在服务开始前已就绪」成为确定事实）。
+// 全局单例（8 线程）。main 里显式调用一次预热，保证服务开始前池已就绪。
 ThreadPool& globalThreadPool();
 
 }  // namespace utils

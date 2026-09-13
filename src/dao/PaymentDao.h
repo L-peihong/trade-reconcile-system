@@ -1,6 +1,4 @@
-// ============================================================================
-// 支付记录表 DAO —— 单表 CRUD，不开事务（CLAUDE.md 4.1）
-// ============================================================================
+// 支付记录表 DAO，单表 CRUD，事务由 Service 传入。
 #pragma once
 
 #include <memory>
@@ -21,8 +19,8 @@ enum class PaymentInsertOutcome {
 
 class PaymentDao {
 public:
-    // 渠道幂等落库（CLAUDE.md 5.5）：uk_channel_trade 唯一索引 + ODKU 无操作更新
-    // 区分插入与冲突（同 IdempotentDao 的判定法，Drogon 未设 CLIENT_FOUND_ROWS）。
+    // 渠道幂等落库：uk_channel_trade 唯一索引 + ODKU 无操作更新区分插入与冲突，
+    // 判定法和 IdempotentDao 一样。
     PaymentInsertOutcome insertWithDedup(
         const std::shared_ptr<drogon::orm::Transaction>& tx,
         const models::Payment& payment);

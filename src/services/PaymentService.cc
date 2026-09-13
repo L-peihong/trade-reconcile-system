@@ -28,8 +28,7 @@ namespace {
 constexpr const char* kSupportedChannel = "MOCK";
 constexpr const char* kBizTypeOrderPaid = "ORDER_PAID";
 
-// 渠道秒级时间戳 → 北京时间字符串（YYYY-MM-DD HH:MM:SS）。
-// 显式 UTC+8、不依赖进程 TZ（CLAUDE.md 6.7；与 OrderService::dbTimeAfter 同原则）。
+// 渠道秒级时间戳 → 北京时间字符串。显式 UTC+8，不依赖进程 TZ（同 dbTimeAfter）。
 std::string epochToBeijing(const std::string& epochSeconds) {
     const std::time_t t = static_cast<std::time_t>(std::stoll(epochSeconds)) + 8 * 3600;
     std::tm tmBuf{};
@@ -56,7 +55,7 @@ PaymentService::PaymentService()
       accountDao_(std::make_unique<dao::AccountDao>()),
       orderDao_(std::make_unique<dao::OrderDao>()),
       localMessageDao_(std::make_unique<dao::LocalMessageDao>()) {
-    // 构造不碰 drogon::app()（同 OrderService 的原因）。
+    // 构造不碰 drogon::app()，理由同 OrderService。
 }
 
 PaymentService::~PaymentService() = default;
@@ -98,7 +97,7 @@ models::Result<Json::Value> PaymentService::handleCallback(
         }
         const auto amountFen = utils::yuanStringToFen(req.amount);
         if (!amountFen.has_value() || *amountFen != order->totalAmountFen) {
-            // 金额不一致一律拒 —— 宁可让渠道重试，不能错账（CLAUDE.md 4.3/6.5）
+            // 金额不一致一律拒，宁可让渠道重试也不能错账。
             throw common::BizException(common::ErrCode::kAmountMismatch,
                                        "支付金额与订单金额不一致");
         }
@@ -134,7 +133,7 @@ models::Result<Json::Value> PaymentService::handleCallback(
             if (current.has_value() &&
                 current->status == models::OrderStatus::kPaid) {
                 // 并发下另一笔回调已抢先支付成功。本回调的支付单随回滚丢弃，
-                // 渠道侧的重复交易留待对账暴露（渠道多单）。见 CLAUDE.md 6.9。
+                // 渠道侧的重复交易留给对账暴露（渠道多单）。
                 log->warn("order already paid by another callback, rollback this one");
                 return models::Result<Json::Value>::ok(
                     Json::Value(), req.requestId);
@@ -143,7 +142,7 @@ models::Result<Json::Value> PaymentService::handleCallback(
                                        "订单状态不允许支付");
         }
 
-        // ---- 5. 账户出账（条件扣减，同防超卖思路）+ 流水 ----
+        // ---- 5. 账户出账（条件扣减，同防超卖）+ 流水 ----
         auto account = accountDao_->getByUserId(tx, order->userId);
         if (!account.has_value()) {
             throw common::BizException(common::ErrCode::kAccountNotFound, "账户不存在");
@@ -153,7 +152,7 @@ models::Result<Json::Value> PaymentService::handleCallback(
         }
 
         // 扣减成功后回读余额算流水前后值：before = after + amount 是确定关系，
-        // 因为扣减是原子条件更新且我们刚成功执行了它 —— 无并发读脏问题。
+        // 扣减是原子条件更新且刚成功执行，没有并发读脏问题。
         auto after = accountDao_->getByUserId(tx, order->userId);
 
         models::AccountFlow flow;
@@ -167,7 +166,7 @@ models::Result<Json::Value> PaymentService::handleCallback(
         flow.requestId = req.requestId;  // uk_request_biz 防同一回调重复记账
         accountDao_->insertFlow(tx, flow);
 
-        // ---- 6. 本地消息表（链路④前置：与业务同事务，CLAUDE.md 6.3）----
+        // ---- 6. 本地消息表（与业务同事务）----
         const auto& rabbitCfg = customConfig["rabbitmq"];
         models::LocalMessage message;
         message.messageId  = utils::IdGenerator::nextId();
@@ -191,7 +190,7 @@ models::Result<Json::Value> PaymentService::handleCallback(
         message.payload      = payload.toStyledString();
         localMessageDao_->insert(tx, message);
 
-        // ---- 7. 显式提交（CLAUDE.md 4.1）----
+        // ---- 7. 显式提交 ----
         txGuard.commit();
 
         log->info("payment callback processed: order_no={} amount_fen={} trade_no={}",

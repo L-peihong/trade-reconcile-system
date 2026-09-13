@@ -1,12 +1,6 @@
-// ============================================================================
-// 冒烟测试
-//
-// 存在的意义是回答一个问题：**这套构建链路是通的吗？**
+// 冒烟测试：验证构建链路本身是通的
 // 能编译、能链接 trade_core、能跑起来、ctest 能发现它。
-//
-// 后续随业务铺开，测试放到 tests/unit/test_order_service.cc 等文件里，
-// 本文件保留不动 —— 构建出问题时它能最快把"是构建坏了还是业务写错了"区分开。
-// ============================================================================
+// 构建出问题时先跑这个，区分是构建坏了还是业务写错了。
 #include <gtest/gtest.h>
 
 #include <string>
@@ -15,20 +9,13 @@
 #include "common/ErrorCode.h"
 #include "models/Result.h"
 
-// ---------------------------------------------------------------------------
-// 你要求的那个 trivial 用例。
-//
-// ⚠️ 它本身**不能**验证 trade_core 链接是否正确：静态库只有在符号被引用时才会
-//    被链接器拉进来，没人引用就等于没链，链接错误自然也暴露不出来。
-//    所以下面还有三个真正调用 trade_core 代码的用例 —— 它们才是这条链路的自检。
-// ---------------------------------------------------------------------------
+// 这个用例本身验不了 trade_core 的链接：静态库只有符号被引用才会被链接器
+// 拉进来，没人引用等于没链。下面几个调用业务代码的用例才是真正的自检。
 TEST(SmokeTest, Trivial) {
     EXPECT_EQ(1, 1);
 }
 
-// ---------------------------------------------------------------------------
-// 错误码：既验数值（协议契约，改了就破坏兼容），也验文案。
-// ---------------------------------------------------------------------------
+// 错误码数值是对外协议契约，改了会破坏兼容；顺带验文案
 TEST(SmokeTest, ErrorCodeValues) {
     EXPECT_EQ(0, static_cast<int>(common::ErrCode::kSuccess));
     EXPECT_EQ(10002, static_cast<int>(common::ErrCode::kMissingRequestId));
@@ -44,10 +31,7 @@ TEST(SmokeTest, ErrorCodeMessages) {
     EXPECT_FALSE(common::isSuccess(common::ErrCode::kStockNotEnough));
 }
 
-// ---------------------------------------------------------------------------
-// Result：成功与失败两条路径的字段和 JSON 结构。
-// 这里断言的是对外协议 —— data 恒存在（失败时为 null），requestId 恒存在。
-// ---------------------------------------------------------------------------
+// Result 两条路径的 JSON 结构：data 恒存在（失败为 null），requestId 恒存在
 TEST(SmokeTest, ResultOkSerializes) {
     const auto result = models::Result<int>::ok(42, "3f2a9c1e-8b74-4d6a-9f01-2c5e7a8b1d3f");
 
@@ -98,9 +82,7 @@ TEST(SmokeTest, ResultSerializesModelWithToJson) {
     EXPECT_EQ(7, json["data"]["id"].asInt());
 }
 
-// ---------------------------------------------------------------------------
-// BizException：错误码能被上层拿到，what() 能拿到可读原因。
-// ---------------------------------------------------------------------------
+// BizException：错误码能被上层拿到，what() 给出可读原因
 TEST(SmokeTest, BizExceptionCarriesCode) {
     const common::BizException ex(common::ErrCode::kBalanceNotEnough, "余额不足");
 

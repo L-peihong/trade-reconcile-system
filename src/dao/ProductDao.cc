@@ -9,12 +9,10 @@ std::size_t ProductDao::deductStock(
     std::uint64_t productId,
     std::int64_t quantity) {
 
-    // 防超卖 SQL（CLAUDE.md 6.1）：
-    //   WHERE stock >= ?  —— 判定与扣减在同一条语句内原子完成；
-    //   AND status = 1    —— 下架商品不可售。
-    // 禁止先 SELECT 再 UPDATE（TOCTOU）；也禁止 SELECT ... FOR UPDATE
-    // （间隙锁放大锁冲突）。version 自增只是辅助审计，不参与判定。
-    // execSqlSync 返回 Result **值**（非指针），用 `.` 访问
+    // 防超卖：stock >= ? 的判定与扣减在同一条 UPDATE 内原子完成，
+    // status = 1 排除下架商品。不能先 SELECT 再 UPDATE（TOCTOU），
+    // 也不用 SELECT ... FOR UPDATE（间隙锁放大冲突）。version 自增只作辅助。
+    // 注意：execSqlSync 返回 Result 值不是指针，用 `.` 访问。
     auto result = tx->execSqlSync(
         "UPDATE t_product"
         "   SET stock = stock - ?, version = version + 1, updated_at = NOW()"
@@ -29,7 +27,7 @@ std::optional<models::Product> ProductDao::getById(
     const std::shared_ptr<drogon::orm::Transaction>& tx,
     std::uint64_t productId) {
 
-    // DECIMAL 不经 double 中转（CLAUDE.md 6.5）：SQL 内 CAST 成「分」取回 int64
+    // DECIMAL 不经 double 中转：SQL 里 CAST 成「分」取回 int64。
     auto result = tx->execSqlSync(
         "SELECT id, product_no, name,"
         "       CAST(price * 100 AS SIGNED) AS price_fen, stock, status"

@@ -10,7 +10,7 @@
 namespace common {
 namespace {
 
-// 写入请求属性的键，与 requestIdOf() 共用。
+// 请求属性键，与 requestIdOf() 共用
 constexpr const char* kRequestIdAttr = "x-request-id";
 
 }  // namespace
@@ -34,7 +34,7 @@ void RequestIdFilter::doFilter(const drogon::HttpRequestPtr& req,
                                drogon::FilterCallback&& fcb,
                                drogon::FilterChainCallback&& fccb) {
     const auto method = req->method();
-    // GET / HEAD / OPTIONS 不强制（CLAUDE.md 4.2），直接放行
+    // GET/HEAD/OPTIONS 不强制，直接放行
     if (method == drogon::Get || method == drogon::Head ||
         method == drogon::Options) {
         fccb();
@@ -43,8 +43,7 @@ void RequestIdFilter::doFilter(const drogon::HttpRequestPtr& req,
 
     const std::string rid = req->getHeader("X-Request-Id");
     if (isValidRequestId(rid)) {
-        // 写入请求属性，controller 用 requestIdOf() 取出 —— 日志、幂等键、
-        // 消息头全程同一份值（Attributes::insert 接口见 drogon Attribute.h）。
+        // 写进请求属性，日志、幂等键、消息头全程用同一份值
         req->attributes()->insert(kRequestIdAttr, rid);
         fccb();
         return;
@@ -67,7 +66,7 @@ std::string requestIdOf(const drogon::HttpRequestPtr& req) {
         try {
             return req->attributes()->get<std::string>(kRequestIdAttr);
         } catch (...) {
-            // 类型不符（理论不可达）→ 降级读原始请求头
+            // 类型不符（正常到不了）→ 降级读原始请求头
         }
     }
     return req->getHeader("X-Request-Id");

@@ -17,7 +17,7 @@ constexpr std::int64_t kMaxSequence        = (1LL << kSequenceBits) - 1;
 constexpr std::int64_t kTimestampShift     = kDatacenterIdBits + kWorkerIdBits + kSequenceBits;
 constexpr std::int64_t kDatacenterShift    = kWorkerIdBits + kSequenceBits;
 constexpr std::int64_t kWorkerShift        = kSequenceBits;
-constexpr std::int64_t kDatacenterId       = 1;  // 单实例 MVP 固定
+constexpr std::int64_t kDatacenterId       = 1;  // 单实例固定值
 constexpr std::int64_t kWorkerId           = 1;
 
 std::mutex gMutex;

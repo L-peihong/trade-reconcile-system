@@ -1,10 +1,6 @@
-# ============================================================================
-# 高可靠交易与对账系统 —— 顶层构建入口
-#
-# 约定见 CLAUDE.md 第 3 节：所有构建命令在 Dev Container (Ubuntu 22.04) 内执行。
+# 顶层构建入口。构建命令在 Dev Container 内执行：
 #   cmake --preset debug
 #   cmake --build build/debug -j$(nproc)
-# ============================================================================
 cmake_minimum_required(VERSION 3.20)
 
 project(trade_reconcile_system
@@ -12,21 +8,18 @@ project(trade_reconcile_system
     DESCRIPTION "高可靠交易与对账系统 / High-reliability trade & reconciliation system"
     LANGUAGES   CXX)
 
-# ---------------------------------------------------------------------------
 # 语言标准
-# ---------------------------------------------------------------------------
 set(CMAKE_CXX_STANDARD          17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS        OFF)   # 关掉 gnu++17 扩展，代码在 GCC/Clang 下行为一致
 
-# 单配置生成器下若未指定构建类型，默认 Debug（而不是空字符串，空字符串不带任何优化也不带调试信息）
+# 单配置生成器下未指定构建类型时默认 Debug
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Debug CACHE STRING "构建类型" FORCE)
     set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS Debug Release RelWithDebInfo MinSizeRel)
 endif()
 
-# 生成 compile_commands.json，供 VSCode C++ 插件 / clangd 使用
-# 仅对 Makefile / Ninja 生成器有效（MSVC 生成器不支持）
+# 生成 compile_commands.json 供 clangd / VSCode 用（仅 Makefile/Ninja 生成器支持）
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # 禁止 in-source build：否则 CMakeCache.txt 会散落在源码树里，污染 git status
@@ -36,16 +29,12 @@ if(CMAKE_BINARY_DIR STREQUAL CMAKE_SOURCE_DIR)
         "请使用:  cmake --preset debug  ")
 endif()
 
-# ---------------------------------------------------------------------------
 # 构建选项
-# ---------------------------------------------------------------------------
 option(TRADE_BUILD_TESTS      "编译 GoogleTest 单元/集成测试"        ON)
 option(TRADE_ENABLE_TRACE_LOG "编译期开启 spdlog trace 级别（见 CLAUDE.md 4.4）" OFF)
 option(TRADE_ENABLE_SANITIZER "开启 ASan + UBSan，排查内存与未定义行为"         OFF)
 
-# ---------------------------------------------------------------------------
 # 第三方依赖
-# ---------------------------------------------------------------------------
 # Drogon：包管理装好后提供 Drogon::Drogon 目标
 find_package(Drogon   REQUIRED)
 find_package(OpenSSL REQUIRED)
@@ -54,17 +43,10 @@ find_package(spdlog  REQUIRED)   # 提供 spdlog::spdlog
 find_package(Threads REQUIRED)
 find_package(GTest REQUIRED)
 
-# MySQL / hiredis / rabbitmq-c 在 Ubuntu 上没有靠谱的 CMake config 文件，
-# 统一走 pkg-config 解析。
-#
-# 若这里报 not found，先用下面命令确认包名（不同发行版 pc 文件名不一样）：
-#   pkg-config --list-all | grep -Ei 'mysql|mariadb|hiredis|rabbit'
-# 对应关系（Ubuntu 22.04）：
-#   libmariadb-dev  → libmariadb.pc（⚠️ 与 libmysqlclient-dev 冲突，装前者会卸后者，
-#                      mysqlclient.pc 随之消失，2026-09-13 实踩。项目统一用 libmariadb.pc，
-#                     与 drogon 1.9.13 的 mariadb-only 立场一致）
-#   libhiredis-dev  → hiredis.pc
-#   librabbitmq-dev → librabbitmq.pc
+# MySQL / hiredis / rabbitmq-c 没有靠谱的 CMake config，统一走 pkg-config。
+# 报 not found 时先用 pkg-config --list-all 确认 pc 文件名。
+# 注意 libmariadb-dev 与 libmysqlclient-dev 冲突（装一个卸另一个），
+# 本项目统一用 libmariadb.pc。
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(JSONCPP REQUIRED IMPORTED_TARGET jsoncpp)
 # 变量名沿用 MYSQLCLIENT，避免下游链接行改动
@@ -72,13 +54,9 @@ pkg_check_modules(MYSQLCLIENT REQUIRED IMPORTED_TARGET libmariadb)
 pkg_check_modules(HIREDIS     REQUIRED IMPORTED_TARGET hiredis)
 pkg_check_modules(RABBITMQ    REQUIRED IMPORTED_TARGET librabbitmq)
 
-# ---------------------------------------------------------------------------
 # 源文件收集
-# ---------------------------------------------------------------------------
-# ⚠️ GLOB 的经典陷阱：CMake 只在 configure 阶段展开 glob，之后新增的源文件
-#    不会被感知，你会对着「符号未定义」查半天，最后发现是没重新 configure。
-#    CONFIGURE_DEPENDS 让构建系统在每次构建时检查 glob 是否失效并自动重跑，
-#    这是使用 GLOB 时**必须**加的参数。
+# GLOB 只在 configure 阶段展开，新增源文件必须重新 configure 才能被感知；
+# CONFIGURE_DEPENDS 让构建系统每次构建时自动检查 glob 并重跑，必须带上。
 file(GLOB_RECURSE TRADE_SOURCES CONFIGURE_DEPENDS
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cc"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
@@ -102,26 +80,19 @@ if(NOT TRADE_MAIN)
     message(FATAL_ERROR "找不到入口文件 src/main.cc 或 src/main.cpp")
 endif()
 
-# main 单独编，其余业务代码编成静态库。
-#
-# 这么拆不是为了好看，是为了让 tests/ 能链接业务代码：
-# 若把所有 .cc 塞进一个可执行目标，GTest 测试链接时就必然撞上
-# 「multiple definition of main」—— 因为 src/main.cc 和 gtest_main 都有 main()。
+# main 单独编，其余业务代码编成静态库，tests/ 才能链接；
+# 塞进同一个可执行目标会与 gtest_main 的 main() 撞 multiple definition。
 list(FILTER TRADE_SOURCES EXCLUDE REGEX "/main\\.(cc|cpp)$")
 
-# ---------------------------------------------------------------------------
-# 统一的编译选项（INTERFACE 库，自动传播到所有下游目标，测试目标也吃得到）
-# ---------------------------------------------------------------------------
+# 统一编译选项（INTERFACE 库，自动传播到所有下游目标）
 add_library(trade_build_flags INTERFACE)
 
-# 告警：CLAUDE.md 要求 -Wall -Wextra
+# 告警基线
 target_compile_options(trade_build_flags INTERFACE
     -Wall
     -Wextra)
 
-# Debug：显式加 -g -O0
-#   -fno-omit-frame-pointer 是为 gdb 回溯和 perf 火焰图准备的，
-#   缺了它栈回溯只有一串问号，排查线上问题会非常痛苦。
+# Debug 显式加 -g -O0；-fno-omit-frame-pointer 保 gdb 回溯和 perf 火焰图
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     target_compile_options(trade_build_flags INTERFACE
         -g
@@ -138,15 +109,12 @@ if(TRADE_ENABLE_SANITIZER)
 endif()
 
 if(TRADE_ENABLE_TRACE_LOG)
-    # CLAUDE.md 4.4：trace 级日志只在 debug 构建开启。
-    # spdlog 在编译期就会把低于该级别的日志整段裁掉，零运行时开销。
+    # spdlog 编译期裁掉低于该级别的日志，零运行时开销
     target_compile_definitions(trade_build_flags INTERFACE
         SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE)
 endif()
 
-# ---------------------------------------------------------------------------
 # 业务核心库
-# ---------------------------------------------------------------------------
 add_library(trade_core STATIC ${TRADE_SOURCES})
 
 target_include_directories(trade_core PUBLIC
@@ -165,24 +133,17 @@ target_link_libraries(trade_core PUBLIC
     ZLIB::ZLIB
     Threads::Threads)
 
-# ---------------------------------------------------------------------------
-# 可执行文件
-# 产物路径与 CLAUDE.md 第 3 节一致：build/debug/trade_server
-# ---------------------------------------------------------------------------
+# 可执行文件（产物 build/<preset>/trade_server）
 add_executable(trade_server "${TRADE_MAIN}")
-# ⚠️ 静态库 + 自动注册的硬性要求（CLAUDE.md 3.2）：
-# HttpController/HttpFilter 靠 DrObject<T> 静态初始化自注册；目标文件若无符号
-# 被引用，链接器会整块丢弃 → 编译全过、运行时路由 404。
-# --whole-archive 强制纳入全部目标文件（GNU/Clang 链接器；本项目只在容器构建）。
+# 静态库 + 自动注册的硬性要求：控制器/过滤器靠 DrObject 静态初始化自注册，
+# 目标文件若无符号被引用会被链接器整块丢弃，编译全过、运行时路由 404。
+# 用 --whole-archive 强制纳入全部目标文件，不能删。
 target_link_libraries(trade_server PRIVATE
     -Wl,--whole-archive trade_core -Wl,--no-whole-archive)
 
-# ---------------------------------------------------------------------------
 # 测试
-# ---------------------------------------------------------------------------
 if(TRADE_BUILD_TESTS)
-    # 先探测文件是否存在，避免第一批代码还没写时 cmake 直接 configure 失败。
-    # 这不是「静默跳过」—— 会打 WARNING，看得见。
+    # 文件不存在时打 WARNING 跳过，而不是 configure 直接失败
     if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tests/CMakeLists.txt")
         enable_testing()
         add_subdirectory(tests)
@@ -193,9 +154,7 @@ if(TRADE_BUILD_TESTS)
     endif()
 endif()
 
-# ---------------------------------------------------------------------------
 # 配置摘要
-# ---------------------------------------------------------------------------
 message(STATUS "")
 message(STATUS "================= trade-reconcile-system =================")
 message(STATUS "  构建类型    : ${CMAKE_BUILD_TYPE}")

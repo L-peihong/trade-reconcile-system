@@ -1,8 +1,6 @@
-// ============================================================================
-// 下游通知记录表 DAO（CLAUDE.md 5.8）—— 消费端幂等的地基
-// uk_message_id 唯一索引去重；uk_notify_no 保证通知单唯一。
-// 全部为非事务单条操作，在消费者线程上调用（非事件循环线程，CLAUDE.md 6.6）。
-// ============================================================================
+// 下游通知记录表 DAO，消费端幂等的地基。
+// uk_message_id 去重，uk_notify_no 保证通知单唯一。
+// 全为非事务单条操作，在消费者线程上调用。
 #pragma once
 
 #include <string>
@@ -22,8 +20,7 @@ struct NotifyInsertResult {
 
 class NotifyDao {
 public:
-    // 幂等落库：INSERT ... ON DUPLICATE KEY UPDATE 判定（同 IdempotentDao 的
-    // 判定法，Drogon 未设 CLIENT_FOUND_ROWS）。初始 status=0（待通知）。
+    // 幂等落库：ODKU 无操作更新判定插入/冲突（同 IdempotentDao 的判定法），初始 status=0。
     NotifyInsertResult insertWithDedup(const std::string& messageId,
                                        const std::string& orderNo,
                                        const std::string& targetUrl);

@@ -24,8 +24,8 @@ ThreadPool::~ThreadPool() {
             thread.join();
         }
     }
-    // 注意：析构时队列里未开始的任务被直接丢弃。本池只跑「请求级」短任务，
-    // 服务停止时丢弃未开始的任务可接受 —— 客户端会超时重试。
+    // 析构时未开始的任务直接丢弃。池里只跑请求级短任务，
+    // 服务停止时丢掉可接受，客户端会超时重试。
 }
 
 bool ThreadPool::submit(std::function<void()> task) {
@@ -56,8 +56,8 @@ void ThreadPool::workerLoop() {
             tasks_.pop_front();
         }
 
-        // 任务异常不允许杀死工作线程，兜底记录后继续。
-        // 走到这里说明业务代码有未捕获异常 —— 属于 bug，记 error。
+        // 任务异常不能杀死工作线程，兜底记日志后继续。
+        // 能走到这里说明业务代码有未捕获异常
         try {
             task();
         } catch (const std::exception& e) {

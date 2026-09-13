@@ -1,19 +1,17 @@
 #!/usr/bin/env bash
-# ============================================================================
-# 生成模拟渠道账单（链路⑤验收工具）
+# 生成模拟渠道账单
 #
 # 用法：bash scripts/gen_bill.sh <YYYY-MM-DD> [--missing N] [--extra N] [--tamper N]
-#   --missing N : 从账单中删掉最后 N 行     → 对账将产生「本地多单」(类型1)
-#   --extra N   : 追加 N 行伪造交易         → 对账将产生「渠道多单」(类型2)
-#   --tamper N  : 前 N 行金额改为 0.01     → 对账将产生「金额不一致」(类型3)
+#   --missing N : 删掉账单最后 N 行    → 对账产生「本地多单」(类型1)
+#   --extra N   : 追加 N 行伪造交易    → 对账产生「渠道多单」(类型2)
+#   --tamper N  : 前 N 行金额改为 0.01 → 对账产生「金额不一致」(类型3)
 #
 # 账单格式（CSV，无表头）：channelTradeNo,orderNo,amount,callbackTime
-# 数据来源：t_payment 中 MOCK 渠道、指定日期（按 callback_time 归集）的成功记录
-# —— 与 ReconcileService 的本地口径完全一致（CLAUDE.md 6.9）。
+# 数据来源：t_payment 中 MOCK 渠道、指定日期（按 callback_time 归集）的成功记录，
+# 与对账的本地口径一致。
 #
 # 前置：compose 的 MySQL(3307) 已启动，容器内有 mariadb-client。
 # 产物：scripts/bills/bill_<日期>.csv（不提交到 git）
-# ============================================================================
 set -euo pipefail
 
 DATE="${1:?用法: bash scripts/gen_bill.sh <YYYY-MM-DD> [--missing N] [--extra N] [--tamper N]}"
@@ -45,9 +43,9 @@ mysql -h host.docker.internal -P 3307 -uroot -proot123 trade_reconcile -N -B -e 
 
 TOTAL=$(wc -l < "$OUT")
 
-# ---- 差异注入 ----
+# 差异注入
 if [ "$TAMPER" -gt 0 ]; then
-    # 前 N 行金额改为 0.01（两侧都在,金额不等 → 类型3）
+    # 前 N 行金额改为 0.01（两侧都在，金额不等 → 类型3）
     head -n "$TAMPER" "$OUT" | awk -F',' '{$3="0.01"; print $1","$2","$3","$4}' OFS=',' > "$OUT.tmp"
     tail -n +$((TAMPER + 1)) "$OUT" >> "$OUT.tmp"
     mv "$OUT.tmp" "$OUT"

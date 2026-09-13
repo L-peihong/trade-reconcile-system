@@ -10,8 +10,8 @@ namespace utils {
 std::string hmacSha256Hex(const std::string& key, const std::string& data) {
     unsigned char md[EVP_MAX_MD_SIZE];
     unsigned int len = 0;
-    // HMAC 一次性接口在 OpenSSL 3 仍可用（标记弃用但不删），MVP 足够；
-    // 升级时换 EVP_MAC 系列即可，输出字节不变。
+    // 一次性 HMAC 接口在 OpenSSL 3 里标记弃用但还在，够用；
+    // 以后升级换 EVP_MAC 系列，输出不变
     HMAC(EVP_sha256(), key.data(), static_cast<int>(key.size()),
          reinterpret_cast<const unsigned char*>(data.data()), data.size(),
          md, &len);
@@ -46,8 +46,7 @@ bool verifyMockSign(const std::string& secret,
     }
     const bool ok = CRYPTO_memcmp(expected.data(), sign.data(), expected.size()) == 0;
     if (!ok) {
-        // 排障日志：把服务端实际参与的 canonical 与期望签名打出来，
-        // 与 scripts/mock_pay.sh 的算法逐字段对账。
+        // 排障日志：打出 canonical 和期望签名，方便和 mock_pay.sh 逐字段对
         if (auto log = common::Logger::get()) {
             log->warn("mock sign mismatch: canonical=[{}] expected=[{}] got=[{}] secret_len={}",
                       canonical, expected, sign, secret.size());

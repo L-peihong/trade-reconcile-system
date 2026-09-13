@@ -1,21 +1,17 @@
 #!/usr/bin/env bash
-# ============================================================================
-# 端到端冒烟（面试现场演示 / 回归测试）
-#
-# 链路：健康检查 → 下单（幂等+防超卖）→ 支付回调（验签+入账）→ 商户通知
-#       （可靠消息）→ 生成带差异的当日账单 → 日终对账 → 差异查询 → 核销
+# 端到端冒烟：健康检查 → 下单（幂等+防超卖）→ 支付回调（验签+入账）
+# → 商户通知（可靠消息）→ 生成带差异的当日账单 → 日终对账 → 差异查询 → 核销
 #
 # 用法：bash scripts/smoke_test.sh
 # 前置：trade_server 已启动；compose 中间件已起；容器内有 mariadb-client。
 #
-# 说明：对账按「今日」跑，uk_date_channel 幂等 —— 今日已对账过时，脚本会
-#       验证幂等拦截（70002）并跳过差异/核销步骤（首次运行演示全链路）。
-# ============================================================================
+# 说明：对账按「今日」跑，uk_date_channel 幂等 —— 今日已对过账时，脚本会
+#       验证幂等拦截（70002）并跳过差异/核销步骤。
 set -euo pipefail
 
 BASE_URL="${BASE_URL:-http://localhost:8080}"
 DB="mysql -h host.docker.internal -P 3307 -uroot -proot123 trade_reconcile -N"
-TODAY=$(date -u -d '+8 hours' +%F)   # 北京时间日期（显式 UTC+8，CLAUDE.md 6.7）
+TODAY=$(date -u -d '+8 hours' +%F)   # 北京时间日期（显式 UTC+8，不依赖系统时区）
 PASS=0
 FAIL=0
 
@@ -23,7 +19,7 @@ step() { echo ""; echo "==> $1"; }
 ok()   { echo "    ✅ $1"; PASS=$((PASS + 1)); }
 die()  { echo "    ❌ $1"; FAIL=$((FAIL + 1)); exit 1; }
 
-# 从 JSON 里抠字段（字符串值带引号 / 数字值不带，两种模式都要）
+# 从 JSON 里抠字段（字符串值带引号/数字不带，两种模式都匹配）
 # 用法: echo "$JSON" | field <key>   —— $1 是键名
 field() {
     sed -n -e 's/.*"'$1'":"\([^"]*\)".*/\1/p' \
@@ -31,9 +27,9 @@ field() {
 }
 
 step "1/6 健康检查"
-# 清掉今日账单：防止 ReconcileTask(60s 定时)在冒烟跑到第 5 步前抢跑对账
+# 清掉今日账单，防止 60s 定时任务在冒烟跑到第 5 步前抢跑对账
 rm -f "scripts/bills/bill_${TODAY}.csv"
-# ⚠️ curl 失败必须显式 die：set -e 下赋值语句失败会静默杀死脚本
+# curl 失败要显式 die：set -e 下赋值失败会静默退出
 RESP=$(curl -s -m 5 "$BASE_URL/health") || die "无法连接服务(确认 trade_server 已启动)"
 echo "$RESP" | grep -q '"code":0' && ok "服务健康" || die "health 失败: $RESP"
 
@@ -46,7 +42,7 @@ ORDER_NO=$(echo "$RESP" | field orderNo)
 [ -n "$ORDER_NO" ] || die "下单失败: $RESP"
 ok "订单创建: $ORDER_NO"
 
-# 重放同请求 → 快照一致（幂等）
+# 重放同请求，快照应逐字节一致（幂等）
 RESP2=$(curl -s -m 10 -X POST "$BASE_URL/api/v1/orders" \
     -H 'Content-Type: application/json' -H "X-Request-Id: $RID" \
     -d '{"productId":3,"quantity":1,"userId":1001}') || die "重放请求失败"

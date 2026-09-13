@@ -1,7 +1,5 @@
-// ============================================================================
-// 账户表 + 流水表 DAO —— 单表 CRUD，不开事务（CLAUDE.md 4.1）
-// 账户余额扣减走条件 UPDATE（同防超卖思路，CLAUDE.md 6.1 的推广）。
-// ============================================================================
+// 账户表 + 流水表 DAO，单表 CRUD，事务由 Service 传入。
+// 余额扣减走条件 UPDATE，和防超卖同一个套路。
 #pragma once
 
 #include <memory>
@@ -26,8 +24,8 @@ public:
                        const std::string& accountNo,
                        std::int64_t amountFen);
 
-    // 写流水（只增不改）。before/after 由 Service 在扣减成功后回读余额算出，
-    // 与原子扣减天然一致（before = after + amount，无并发读脏风险）。
+    // 写流水（只增不改）。before/after 由 Service 扣减成功后回读余额算出：
+    // before = after + amount 是确定关系，没有并发读脏问题。
     void insertFlow(const std::shared_ptr<drogon::orm::Transaction>& tx,
                     const models::AccountFlow& flow);
 };

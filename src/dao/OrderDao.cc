@@ -8,9 +8,8 @@ namespace dao {
 
 void OrderDao::insert(const std::shared_ptr<drogon::orm::Transaction>& tx,
                       const models::Order& order) {
-    // 金额以「分」入参，经字符串 → DECIMAL 精确转换（CLAUDE.md 6.5，不经 double）。
-    // expire_time 为应用侧计算值（修正 3）：时区对齐的前提是
-    // 进程 TZ=Asia/Shanghai 且 MySQL --default-time-zone=+8:00（CLAUDE.md 6.7）。
+    // 金额以「分」入参，经字符串 → DECIMAL 精确转换，不经 double。
+    // expire_time 是应用侧算好的值，两边时区统一 +8。
     tx->execSqlSync(
         "INSERT INTO t_order"
         " (order_no, request_id, user_id, product_id, quantity,"
@@ -35,9 +34,7 @@ std::optional<models::Order> OrderDao::getByOrderNo(
     const std::shared_ptr<drogon::orm::Transaction>& tx,
     const std::string& orderNo) {
 
-    // DECIMAL 在 SQL 内 CAST 成「分」取回（CLAUDE.md 6.5）；
-    // 时间列统一 DATE_FORMAT 成字符串，不经驱动的时间类型中转。
-    // execSqlSync 返回 Result **值**（非指针），用 `.` 访问
+    // DECIMAL 在 SQL 里 CAST 成「分」取回；时间列统一 DATE_FORMAT 成字符串。
     auto result = tx->execSqlSync(
         "SELECT order_no, request_id, user_id, product_id, quantity,"
         "       CAST(unit_price * 100 AS SIGNED)   AS unit_price_fen,"
@@ -72,9 +69,8 @@ std::size_t OrderDao::markPaid(
     const std::shared_ptr<drogon::orm::Transaction>& tx,
     const std::string& orderNo) {
 
-    // 状态机条件更新（CLAUDE.md 5.4）：
-    //   WHERE status = 0 —— 只有待支付才能翻到已支付，防并发重复入账。
-    // paid_at 用 DB 侧 NOW()（+8 时区，与 expire_time 口径一致）。
+    // 条件更新：只有待支付才能翻到已支付，防并发重复入账。
+    // paid_at 用 DB 侧 NOW()，与 expire_time 口径一致。
     auto result = tx->execSqlSync(
         "UPDATE t_order"
         "   SET status = 1, paid_at = NOW(), updated_at = NOW()"

@@ -1,7 +1,5 @@
-// ============================================================================
-// 管理接口（链路⑤）：跑批触发 / 差异查询 / 差异核销
-// handler 只解析参数并 submit 到工作线程池（CLAUDE.md 4.1/6.6）。
-// ============================================================================
+// 管理接口：跑批触发 / 差异查询 / 差异核销
+// handler 只解析参数并提交到工作线程池。
 #pragma once
 
 #include <cstdint>
@@ -18,7 +16,7 @@ public:
     // 手动触发对账
     ADD_METHOD_TO(AdminController::runReconcile, "/api/v1/reconcile/run",
                   drogon::Post, "common::RequestIdFilter");
-    // 差异查询（GET 不强制 X-Request-Id，CLAUDE.md 4.2）
+    // 差异查询（GET 不强制带 X-Request-Id）
     ADD_METHOD_TO(AdminController::listDiffs, "/api/v1/reconcile/diffs",
                   drogon::Get);
     // 差异核销/忽略

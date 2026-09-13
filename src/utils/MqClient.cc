@@ -12,8 +12,8 @@ namespace {
 
 constexpr amqp_channel_t kChannel = 1;
 constexpr int kConfirmTimeoutSeconds = 3;
-// 与 config.json custom_config.rabbitmq.exchange 保持一致（消息行里的
-// exchange 字段即源于该配置，declare 与之一致才能投递）。
+// 与 config.json 里 custom_config.rabbitmq.exchange 保持一致，
+// declare 和投递目标不一致会路由不到
 constexpr const char* kExchangeName = "trade.exchange";
 constexpr const char* kExchangeType = "topic";
 
@@ -74,9 +74,9 @@ bool MqClient::ensureConnected() {
         return false;
     }
 
-    // ⚠️ 顺序不能换：exchange 声明必须在 confirm_select **之前** ——
-    // confirm 模式下每条命令都有 ack 帧，声明在后会把它的 ack 混进
-    // 第一条 publish 的 confirm 等待里，导致 ack 对应关系整体错位。
+    // 顺序不能换：exchange 声明必须在 confirm_select 之前。
+    // confirm 模式下每条命令都有 ack 帧，声明放后面会把它的 ack
+    // 混进第一条 publish 的 confirm 等待，ack 对应关系整个错位。
     if (!declareExchange()) {
         close();
         return false;
@@ -148,7 +148,7 @@ bool MqClient::publish(const std::string& exchange,
         return false;
     }
 
-    // 以 broker 的 confirm 为准（CLAUDE.md 6.3）：publish 不抛异常 ≠ 送达
+    // 以 broker 的 confirm 为准：publish 不抛异常不等于送达
     if (!waitConfirm(kConfirmTimeoutSeconds)) {
         common::Logger::get()->warn("mq publish confirm timeout/error");
         close();

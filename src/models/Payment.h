@@ -1,7 +1,5 @@
-// ============================================================================
-// 支付记录模型 + 回调请求 DTO（纯数据结构 —— CLAUDE.md 2）
-// 金额一律「分」int64_t（CLAUDE.md 6.5）。
-// ============================================================================
+// 支付记录模型 + 回调请求 DTO，纯数据结构。
+// 金额一律「分」int64_t。
 #pragma once
 
 #include <cstdint>
@@ -9,7 +7,7 @@
 
 namespace models {
 
-// 支付记录（t_payment，CLAUDE.md 5.5）
+// 支付记录（t_payment）
 struct Payment {
     enum class Status : int {
         kPending = 0,
@@ -23,7 +21,7 @@ struct Payment {
     std::string channelTradeNo;   // 渠道交易号，uk_channel_trade 幂等键
     std::int64_t amountFen = 0;   // 渠道回调金额
     Status status = Status::kSuccess;
-    std::string callbackTime;     // 渠道时间戳转换的北京时间（对账口径，CLAUDE.md 6.9）
+    std::string callbackTime;     // 渠道时间戳转成的北京时间，对账按此归集
     std::string rawBody;          // 回调原文，排查与对账举证
 };
 

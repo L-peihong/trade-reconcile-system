@@ -32,7 +32,7 @@
                     └─────────────────┘            └──────────────────┘                  └───────────────────┘
 ```
 
-**核心设计**（详见 [CLAUDE.md](CLAUDE.md) 与 [docs/design.md](docs/design.md)）：
+**核心设计**（详见 [docs/design.md](docs/design.md)）：
 
 - 事务边界只在 Service 层，`TransactionGuard` RAII 守护：显式提交失败抛异常、异常路径必然回滚
 - 同步 DB/MQ 一律在线程池执行 —— Drogon 事件循环线程禁止阻塞（已核对 v1.9.13 源码，fast 客户端下会死锁/assert）
@@ -78,4 +78,4 @@ docs/             面试问答大纲(design.md)
 
 ## 面试前
 
-[docs/design.md](docs/design.md) 按「问题 → 方案 → 权衡 → 验证数据」组织了每个技术决策的问答 —— 面试前按此复习。踩坑实录（Drogon 事务语义、MariaDB 客户端兼容、幂等快照格式……）在 [CLAUDE.md](CLAUDE.md) 第 6 节。
+[docs/design.md](docs/design.md) 记录了每个技术决策的取舍与排障过程（Drogon 事务语义、MariaDB 客户端兼容、幂等快照格式等踩坑记录见其第 6 节）。

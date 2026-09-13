@@ -1,6 +1,4 @@
-// ============================================================================
-// 对账差异分类单测 —— 逐笔核对的正确性是亮点④的地基（纯函数,无 DB 依赖）
-// ============================================================================
+// 对账差异分类单测：逐笔核对逻辑（纯函数，无 DB 依赖）
 #include <gtest/gtest.h>
 
 #include <string>
@@ -81,7 +79,7 @@ TEST(ReconcileDiffTest, MixedScenarios) {
     std::vector<ReconcileSideRow> local = {
         makeRow("T1", "O1", 19900),   // 一致
         makeRow("T2", "O2", 19900),   // 本地多单
-        makeRow("T3", "O3", 599900),  // 金额不一致(渠道 5999.00 → 599900 对 599901?)
+        makeRow("T3", "O3", 599900),  // 金额不一致
     };
     std::vector<ReconcileSideRow> channel = {
         makeRow("T1", "O1", 19900),

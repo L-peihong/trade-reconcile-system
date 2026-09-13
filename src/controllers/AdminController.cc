@@ -26,7 +26,7 @@ drogon::HttpResponsePtr badRequest(common::ErrCode code,
     return resp;
 }
 
-// 把同步 Service 调用丢到线程池,结果切回 IO 线程发响应(CLAUDE.md 4.1/6.6)
+// 同步 Service 调用丢线程池，结果切回 IO 线程发响应
 void submitToPool(std::function<models::Result<Json::Value>()> work,
                   std::function<void(const drogon::HttpResponsePtr&)> callback,
                   const std::string& requestId) {

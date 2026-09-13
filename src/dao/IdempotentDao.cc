@@ -8,7 +8,7 @@ IdempotentOutcome IdempotentDao::tryAcquire(
     const std::shared_ptr<drogon::orm::Transaction>& tx,
     const models::Idempotent& record) {
 
-    // execSqlSync 返回 Result **值**（非指针），用 `.` 访问
+    // 注意：execSqlSync 返回 Result 值不是指针，用 `.` 访问。
     auto insertResult = tx->execSqlSync(
         "INSERT INTO t_idempotent"
         " (request_id, user_id, api_path, request_hash, status, expire_time)"
@@ -24,12 +24,12 @@ IdempotentOutcome IdempotentDao::tryAcquire(
         return {IdempotentOutcome::Kind::kAcquired, ""};
     }
 
-    // 唯一键冲突：查状态定生死（CLAUDE.md 5.6）
+    // 唯一键冲突：查状态定生死。
     auto query = tx->execSqlSync(
         "SELECT status, response_body FROM t_idempotent WHERE request_id = ?",
         record.requestId);
     if (query.empty()) {
-        // 理论不可达（刚插入又查不到），保守按「处理中」返回，让客户端重试
+        // 理论不可达（刚插入却查不到），保守按「处理中」返回让客户端重试。
         return {IdempotentOutcome::Kind::kProcessing, ""};
     }
 

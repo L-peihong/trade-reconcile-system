@@ -22,7 +22,7 @@ void MockNotifyController::notify(
     const std::string orderNo =
         json && json->isMember("orderNo") ? (*json)["orderNo"].asString() : "unknown";
 
-    // 演示用失败开关：商户端模拟故障,用于验证消费者重试与死信
+    // 模拟商户故障，用于验证消费者重试与死信
     const bool simulateFailure =
         json && json->isMember("fail") && (*json)["fail"].asBool();
 

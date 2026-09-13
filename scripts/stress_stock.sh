@@ -1,18 +1,13 @@
 #!/usr/bin/env bash
-# ============================================================================
-# 防超卖并发压测（亮点①验收）—— 100 并发抢 50 件库存（P1002）
+# 防超卖并发压测 —— 100 并发抢 50 件库存（P1002）
 #
-# 前置条件：
-#   1. trade_server 已启动（容器内 ./build/debug/trade_server）
-#   2. 容器内已装 mariadb-client（apt-get install -y mariadb-client）
-#   3. 宿主机 compose 的 MySQL 已映射 3307（CLAUDE.md 6.7）
-#
+# 前置：trade_server 已启动；容器内装有 mariadb-client；
+#       宿主机 compose 的 MySQL 映射在 3307。
 # 用法：bash scripts/stress_stock.sh
-# 产出验收数据：成功订单数恰为 50、剩余库存恰为 0、零负库存（零超卖）。
+# 验收标准：成功订单恰为 50、剩余库存恰为 0、零负库存。
 #
-# 注意：脚本会重置 P1002 库存为 50，并清空商品 2 的历史压测订单与全部
-# 下单幂等记录（开发库专用，不影响其他数据）。
-# ============================================================================
+# 注意：脚本会重置 P1002 库存为 50，并清掉该商品的历史订单与下单幂等记录
+# （开发库专用，不影响其他数据）。
 set -euo pipefail
 
 BASE_URL="${BASE_URL:-http://localhost:8080}"
@@ -32,7 +27,7 @@ trap 'rm -rf "$OUT_DIR"' EXIT
 
 echo "==> 启动 $CONCURRENCY 个并发下单请求(每个 quantity=1)..."
 for i in $(seq 1 "$CONCURRENCY"); do
-    # 16 位十六进制 request_id：满足 X-Request-Id 校验规则([0-9a-fA-F-], 16~64 位)
+    # 16 位十六进制 request_id，满足 X-Request-Id 校验（16~64 位）
     REQ_ID=$(printf '%08x%08x' "$TS" "$i")
     (
         curl -s -X POST "$BASE_URL/api/v1/orders" \
@@ -44,8 +39,7 @@ for i in $(seq 1 "$CONCURRENCY"); do
 done
 wait
 
-# 统计：成功(code=0)与库存不足拒绝(30002)。
-# grep 同时匹配紧凑格式 "code":0 与美化格式 "code" : 0。
+# 统计成功(code=0)与库存不足拒绝(30002)，grep 同时匹配紧凑/美化两种格式
 SUCCESS=$(grep -lE '"code" ?: ?0' "$OUT_DIR"/*.json 2>/dev/null | wc -l)
 SOLD_OUT=$(grep -lE '30002' "$OUT_DIR"/*.json 2>/dev/null | wc -l)
 

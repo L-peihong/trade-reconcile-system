@@ -38,9 +38,7 @@ std::size_t AccountDao::deduct(
     const std::string& accountNo,
     std::int64_t amountFen) {
 
-    // 条件扣减（CLAUDE.md 5.1 约定 + 6.1 思路推广）：
-    //   WHERE balance >= ? —— 余额判定与扣减原子完成；
-    //   AND status = 0    —— 冻结/注销账户不可动账。
+    // 条件扣减：balance >= ? 的判定与扣减原子完成，status = 0 排除冻结/注销账户。
     auto result = tx->execSqlSync(
         "UPDATE t_account"
         "   SET balance = balance - CAST(? AS DECIMAL(18,2)),"

@@ -15,8 +15,8 @@ namespace {
 
 constexpr double kScanIntervalSeconds = 5.0;
 constexpr int kBatchLimit = 200;
-constexpr int kMaxRetries = 8;          // 超限置 status=3 并告警（CLAUDE.md 5.7）
-constexpr int kBaseBackoffSeconds = 5;  // 指数退避：5s × 2^(n-1)
+constexpr int kMaxRetries = 8;          // 超过上限置 status=3 并告警
+constexpr int kBaseBackoffSeconds = 5;  // 指数退避基数：5s × 2^(n-1)
 
 utils::MqConfig loadMqConfig() {
     utils::MqConfig config;
@@ -40,8 +40,7 @@ MessageRelayTask& MessageRelayTask::instance() {
 }
 
 void MessageRelayTask::start() {
-    // 定时器回调跑在 main 事件循环线程：只做防重入 + 提交，绝不阻塞（6.6）。
-    // start 幂等性由 main.cc 保证只调用一次。
+    // 回调在事件循环线程上，只做防重入 + 提交，不阻塞
     drogon::app().getLoop()->runEvery(kScanIntervalSeconds, []() {
         MessageRelayTask::instance().runOnce();
     });
@@ -50,7 +49,7 @@ void MessageRelayTask::start() {
 void MessageRelayTask::runOnce() {
     bool expected = false;
     if (!running_.compare_exchange_strong(expected, true)) {
-        return;  // 上一批还没处理完（CLAUDE.md 6.8 防重入）
+        return;  // 上一批还没处理完，直接跳过
     }
     utils::globalThreadPool().submit([]() {
         MessageRelayTask::instance().relay();
@@ -78,8 +77,8 @@ void MessageRelayTask::relay() {
 
     for (const auto& msg : messages) {
         try {
-            // 投递在事务外（CLAUDE.md 6.3 第二步）：至少一次语义，消费端幂等兜底。
-            // 若 confirm 成功但状态更新失败，下轮会重复投递 —— 这正是设计允许的。
+            // 至少一次语义：confirm 成功但状态更新失败时下轮会重复投递，
+            // 由消费端幂等兜底
             if (mqClient_->publish(msg.exchange, msg.routingKey, msg.payload)) {
                 dao.markAcked(msg.messageId);
                 ++sent;
@@ -98,7 +97,7 @@ void MessageRelayTask::relay() {
                 }
             }
         } catch (const std::exception& e) {
-            // 逐条隔离：一条失败不中断整批（CLAUDE.md 6.8）
+            // 逐条隔离，一条失败不中断整批
             log->error("message relay exception: id={} err={}", msg.messageId, e.what());
             ++retried;
         }

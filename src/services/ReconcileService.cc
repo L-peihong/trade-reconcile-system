@@ -152,7 +152,7 @@ models::Result<Json::Value> ReconcileService::run(const std::string& billDate) {
                                        "该日期已对账，勿重复跑批");
         }
 
-        // ---- 3. 本地流水（渠道口径：按 callback_time 归集，CLAUDE.md 6.9）----
+        // ---- 3. 本地流水（按 callback_time 归集，渠道口径）----
         auto result = tx->execSqlSync(
             "SELECT channel_trade_no, order_no, CAST(amount * 100 AS SIGNED) AS amount_fen"
             "  FROM t_payment"

@@ -1,6 +1,4 @@
-// ============================================================================
-// 幂等表 DAO（CLAUDE.md 5.6 语义边界）
-// ============================================================================
+// 幂等表 DAO。
 #pragma once
 
 #include <memory>
@@ -26,10 +24,9 @@ struct IdempotentOutcome {
 class IdempotentDao {
 public:
     // 抢占幂等键：INSERT 成功 = 获得执行权。
-    // 实现细节（已核对 Drogon 源码）：用 INSERT ... ON DUPLICATE KEY UPDATE
-    // request_id = request_id（无操作更新）区分插入与冲突 —— Drogon 的 MySQL
-    // 连接 client_flag = 0（未设 CLIENT_FOUND_ROWS），无操作更新返回
-    // affectedRows = 0，新插入返回 1；任何非 1 的值一律走查询分支，保守。
+    // 用 ON DUPLICATE KEY UPDATE request_id = request_id（无操作更新）区分插入
+    // 与冲突：Drogon 的 MySQL 连接未设 CLIENT_FOUND_ROWS，无操作更新返回 0 行，
+    // 新插入返回 1；非 1 一律走查询分支，保守。
     IdempotentOutcome tryAcquire(
         const std::shared_ptr<drogon::orm::Transaction>& tx,
         const models::Idempotent& record);
