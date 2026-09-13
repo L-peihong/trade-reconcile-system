@@ -40,6 +40,12 @@ enum class ErrCode : int {
     kChannelTradeConflict = 50003, // 渠道交易号已绑定其他订单
     kUnsupportedChannel  = 50004,  // 不支持的渠道
 
+    // --- 70xxx 对账 ---
+    kReconcileBatchNotFound     = 70001,  // 批次不存在
+    kReconcileBatchStatusInvalid = 70002, // 批次状态不允许此操作（含同日重复跑批）
+    kReconcileDiffAlreadyHandled = 70003, // 差异已处理过
+    kReconcileBillParseFailed    = 70004, // 账单文件不存在/解析失败
+
     // --- 90xxx 系统 ---
     kDbError       = 90001,  // 数据库错误
     kInternalError = 90003,  // 内部未知异常（兜底）
@@ -83,6 +89,14 @@ inline const char* toMessage(ErrCode code) noexcept {
             return "渠道交易号已绑定其他订单";
         case ErrCode::kUnsupportedChannel:
             return "不支持的支付渠道";
+        case ErrCode::kReconcileBatchNotFound:
+            return "对账批次不存在";
+        case ErrCode::kReconcileBatchStatusInvalid:
+            return "该日期已对账或批次状态不允许此操作";
+        case ErrCode::kReconcileDiffAlreadyHandled:
+            return "差异记录已处理过";
+        case ErrCode::kReconcileBillParseFailed:
+            return "账单文件不存在或解析失败";
         case ErrCode::kDbError:
             return "系统繁忙，请稍后重试";
         case ErrCode::kInternalError:

@@ -20,6 +20,7 @@
 #include "controllers/HealthController.h"
 #include "controllers/OrderController.h"
 #include "tasks/MessageRelayTask.h"
+#include "tasks/ReconcileTask.h"
 #include "utils/ThreadPool.h"
 
 namespace {
@@ -114,6 +115,12 @@ int main(int argc, char* argv[]) {
     //    独立常驻线程,阻塞式消费循环 —— 不在事件循环上。
     // ------------------------------------------------------------------------
     consumer::NotifyConsumer::instance().start();
+
+    // ------------------------------------------------------------------------
+    // 9. 日终对账定时任务（链路⑤，CLAUDE.md 3.6 里程碑 5）：
+    //    每分钟检查账单文件与当日批次,就绪则跑批(幂等)。
+    // ------------------------------------------------------------------------
+    tasks::ReconcileTask::instance().start();
 
     log->info("trade_server starting: config={} io_threads={} pool_threads={}",
               configPath, kIoThreads, utils::globalThreadPool().threadCount());
