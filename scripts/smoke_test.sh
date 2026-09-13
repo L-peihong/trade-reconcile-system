@@ -23,37 +23,44 @@ step() { echo ""; echo "==> $1"; }
 ok()   { echo "    ✅ $1"; PASS=$((PASS + 1)); }
 die()  { echo "    ❌ $1"; FAIL=$((FAIL + 1)); exit 1; }
 
-# 从 JSON 里抠字符串字段（本脚本只用纯数字字段，sed 足够）
-field() { sed -n 's/.*"'$2'":"\([^"]*\)".*/\1/p'; }
+# 从 JSON 里抠字段（字符串值带引号 / 数字值不带，两种模式都要）
+# 用法: echo "$JSON" | field <key>   —— $1 是键名
+field() {
+    sed -n -e 's/.*"'$1'":"\([^"]*\)".*/\1/p' \
+           -e 's/.*"'$1'":\(-\{0,1\}[0-9]*\).*/\1/p'
+}
 
 step "1/6 健康检查"
-RESP=$(curl -s "$BASE_URL/health")
+# 清掉今日账单：防止 ReconcileTask(60s 定时)在冒烟跑到第 5 步前抢跑对账
+rm -f "scripts/bills/bill_${TODAY}.csv"
+# ⚠️ curl 失败必须显式 die：set -e 下赋值语句失败会静默杀死脚本
+RESP=$(curl -s -m 5 "$BASE_URL/health") || die "无法连接服务(确认 trade_server 已启动)"
 echo "$RESP" | grep -q '"code":0' && ok "服务健康" || die "health 失败: $RESP"
 
 step "2/6 下单（幂等 + 防超卖）"
 RID=$(printf '%08x%08x' "$(date +%s)" "$$")
-RESP=$(curl -s -X POST "$BASE_URL/api/v1/orders" \
+RESP=$(curl -s -m 10 -X POST "$BASE_URL/api/v1/orders" \
     -H 'Content-Type: application/json' -H "X-Request-Id: $RID" \
-    -d '{"productId":3,"quantity":1,"userId":1001}')
+    -d '{"productId":3,"quantity":1,"userId":1001}') || die "下单请求失败"
 ORDER_NO=$(echo "$RESP" | field orderNo)
 [ -n "$ORDER_NO" ] || die "下单失败: $RESP"
 ok "订单创建: $ORDER_NO"
 
 # 重放同请求 → 快照一致（幂等）
-RESP2=$(curl -s -X POST "$BASE_URL/api/v1/orders" \
+RESP2=$(curl -s -m 10 -X POST "$BASE_URL/api/v1/orders" \
     -H 'Content-Type: application/json' -H "X-Request-Id: $RID" \
-    -d '{"productId":3,"quantity":1,"userId":1001}')
+    -d '{"productId":3,"quantity":1,"userId":1001}') || die "重放请求失败"
 [ "$RESP" = "$RESP2" ] && ok "幂等重放:响应逐字节一致" || die "幂等重放不一致"
 
 step "3/6 支付回调（验签 + 出账 + 流水 + 本地消息）"
 TS=$(date +%s)
 TRADE="MOCKSMOKE${TS}"
-AMOUNT=$($DB -e "SELECT CAST(total_amount AS CHAR) FROM t_order WHERE order_no='${ORDER_NO}';")
+AMOUNT=$($DB -e "SELECT CAST(total_amount AS CHAR) FROM t_order WHERE order_no='${ORDER_NO}';") || die "查询订单金额失败"
 SIGN=$(printf '%s' "${ORDER_NO}|${TRADE}|${AMOUNT}|${TS}" \
     | openssl dgst -sha256 -hmac "mock-channel-secret-2026" -hex | awk '{print $2}')
-PAY_RESP=$(curl -s -X POST "$BASE_URL/api/v1/payment/callback" \
+PAY_RESP=$(curl -s -m 10 -X POST "$BASE_URL/api/v1/payment/callback" \
     -H 'Content-Type: application/json' -H "X-Request-Id: $(printf '%08x%08x' "$TS" "$RANDOM")" \
-    -d "{\"orderNo\":\"${ORDER_NO}\",\"channel\":\"MOCK\",\"channelTradeNo\":\"${TRADE}\",\"amount\":\"${AMOUNT}\",\"timestamp\":${TS},\"sign\":\"${SIGN}\"}")
+    -d "{\"orderNo\":\"${ORDER_NO}\",\"channel\":\"MOCK\",\"channelTradeNo\":\"${TRADE}\",\"amount\":\"${AMOUNT}\",\"timestamp\":${TS},\"sign\":\"${SIGN}\"}") || die "支付回调请求失败"
 echo "$PAY_RESP" | grep -q '"code":0' && ok "支付成功,金额 ${AMOUNT}" || die "支付失败: $PAY_RESP"
 
 step "4/6 可靠消息（投递 + 消费 + 商户通知）"
@@ -67,10 +74,10 @@ done
 
 step "5/6 日终对账（生成带差异账单 + 跑批）"
 bash scripts/gen_bill.sh "$TODAY" --tamper 1 > /dev/null
-RUN_RESP=$(curl -s -X POST "$BASE_URL/api/v1/reconcile/run" \
+RUN_RESP=$(curl -s -m 15 -X POST "$BASE_URL/api/v1/reconcile/run" \
     -H 'Content-Type: application/json' \
     -H "X-Request-Id: $(printf '%08x%08x' "$(date +%s)" "$$")" \
-    -d "{\"billDate\":\"${TODAY}\"}")
+    -d "{\"billDate\":\"${TODAY}\"}") || die "跑批请求失败"
 if echo "$RUN_RESP" | grep -q '"code":70002'; then
     ok "今日已对账,幂等拦截生效(70002) —— 跳过差异步骤"
     echo ""
@@ -82,15 +89,15 @@ BATCH_NO=$(echo "$RUN_RESP" | field batchNo)
 ok "对账批次: $BATCH_NO"
 
 step "6/6 差异查询 + 核销"
-DIFFS=$(curl -s "$BASE_URL/api/v1/reconcile/diffs?batchNo=${BATCH_NO}")
+DIFFS=$(curl -s -m 10 "$BASE_URL/api/v1/reconcile/diffs?batchNo=${BATCH_NO}") || die "差异查询请求失败"
 DIFF_COUNT=$(echo "$DIFFS" | field count)
 [ "$DIFF_COUNT" -ge 1 ] && ok "定位差异 $DIFF_COUNT 笔(含金额不一致)" || die "差异查询失败: $DIFFS"
 
 DIFF_ID=$($DB -e "SELECT id FROM t_reconcile_diff WHERE batch_no='${BATCH_NO}' ORDER BY id LIMIT 1;")
-HANDLE_RESP=$(curl -s -X POST "$BASE_URL/api/v1/reconcile/diffs/${DIFF_ID}/handle" \
+HANDLE_RESP=$(curl -s -m 10 -X POST "$BASE_URL/api/v1/reconcile/diffs/${DIFF_ID}/handle" \
     -H 'Content-Type: application/json' \
     -H "X-Request-Id: $(printf '%08x%08x' "$(date +%s)" "$$")" \
-    -d '{"action":"verify","remark":"冒烟测试核销"}')
+    -d '{"action":"verify","remark":"冒烟测试核销"}') || die "核销请求失败"
 echo "$HANDLE_RESP" | grep -q '"handleStatus":1' && ok "差异 #${DIFF_ID} 已核销" || die "核销失败: $HANDLE_RESP"
 
 echo ""
