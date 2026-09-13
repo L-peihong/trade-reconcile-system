@@ -35,8 +35,10 @@ enum class ErrCode : int {
     kOrderStatusInvalid = 40002,  // 订单状态不允许此操作（状态机单向，禁止回退）
 
     // --- 50xxx 支付 ---
-    kSignVerifyFailed = 50001,  // 渠道回调验签失败
-    kAmountMismatch   = 50002,  // 回调金额与订单金额不一致
+    kSignVerifyFailed    = 50001,  // 渠道回调验签失败
+    kAmountMismatch      = 50002,  // 回调金额与订单金额不一致
+    kChannelTradeConflict = 50003, // 渠道交易号已绑定其他订单
+    kUnsupportedChannel  = 50004,  // 不支持的渠道
 
     // --- 90xxx 系统 ---
     kDbError       = 90001,  // 数据库错误
@@ -77,6 +79,10 @@ inline const char* toMessage(ErrCode code) noexcept {
             return "签名校验失败";
         case ErrCode::kAmountMismatch:
             return "支付金额与订单金额不一致";
+        case ErrCode::kChannelTradeConflict:
+            return "渠道交易号已绑定其他订单";
+        case ErrCode::kUnsupportedChannel:
+            return "不支持的支付渠道";
         case ErrCode::kDbError:
             return "系统繁忙，请稍后重试";
         case ErrCode::kInternalError:

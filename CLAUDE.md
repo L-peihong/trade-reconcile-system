@@ -212,10 +212,10 @@ bash scripts/gen_bill.sh 2026-09-11   # 生成指定日期的模拟渠道账单
 
 骨架已完成：构建与环境、公共地基（错误码 / Result / Logger / 健康检查）。之后**按链路端到端推进**，顺序不可颠倒：
 
-1. **下单链路** —— `sql/schema.sql` → Product/Order 的 DAO → Service → Controller → curl 通
-2. **幂等 + 防超卖** —— `t_idempotent` + 条件更新 + 并发压测脚本 ← 亮点①
-3. **支付链路** —— 回调验签 + 幂等落库 + 订单状态流转 + 账户入账（事务）← 亮点②
-4. **消息链路** —— 本地消息表 + MQ 投递 + 手动 ACK + 消费幂等 + 死信 ← 亮点③
+1. **下单链路** ✅ —— `sql/schema.sql` → Product/Order 的 DAO → Service → Controller → curl 通
+2. **幂等 + 防超卖** ✅ —— `t_idempotent` + 条件更新 + 并发压测 ← 亮点①（验收：100 并发抢 50 库存，成功 50 / 拒绝 50 / 零超卖；幂等重放逐字节一致）
+3. **支付链路** ✅ —— 回调验签 + 幂等落库 + 订单状态流转 + 账户出账（事务）← 亮点②（验收：一笔订单一次扣款，流水/支付单/本地消息各 1 条；伪造签名 50001、篡改金额 50002、渠道重放幂等）
+4. **消息链路** —— 本地消息表 + MQ 投递 + 手动 ACK + 消费幂等 + 死信 ← 亮点③（t_local_message 的同事务写入已在链路③完成，投递/消费待做）
 5. **对账链路** —— `gen_bill.sh` + 日终任务 + 差异查询/核销 ← 亮点④
 6. **收尾** —— 单测补全 + `smoke_test.sh` + `docs/design.md` + README
 
@@ -718,6 +718,7 @@ dbClient->execSqlAsync(sql, [self = shared_from_this()](const Result& r) { ... }
 - V1 **不配置 redis_clients**：V1 不用 Redis，且实测 Redis 不可达时 Drogon 重连循环导致段错误崩溃（2026-09-13）。链路④⑤需要分布式锁时再恢复，host 用 host.docker.internal。
 - **重建容器后 `/usr/local` 会被清空**（2026-09-13 实踩：Drogon 丢失、构建瘫痪）。postCreateCommand 必须重装 Drogon —— packagecloud 源 404 时整条链会中断，devcontainer.json 已改为「packagecloud 失败 → 自动源码编译 v1.9.13」的幂等链；若手动恢复，用注释里的源码编译段。build/ 是 named volume 不丢，Drogon 装回后不用全量重编。
 - **drogon 1.9.13 的 MySQL 探测只认 MariaDB 布局且静默失败**（CMakeLists.txt:404-407 注 "only mariadb client library is supported"，`find_package(MySQL QUIET)`）。Ubuntu 的 MariaDB 头文件在 `/usr/include/mariadb`，内置 FindMySQL 默认搜不到 → **编译时静默禁用 MySQL**，运行时才报 "The Mysql is not supported in current drogon build"（2026-09-13 实踩）。修复：装 `libmariadb-dev` + cmake 显式传 `-DMySQL_INCLUDE_DIR=/usr/include/mariadb -DMySQL_LIBRARY=/usr/lib/x86_64-linux-gnu/libmariadb.so`；**验收标志是 configure 输出出现 "Ok! We find mariadb!"，没有这句就别 make**（devcontainer.json 已固化此修复）。装好 libmariadb-dev 后探测可自行命中，提示参数可不传。
+- **`getCustomConfig()` 只返回 `custom_config` 段**（v1.9.13 的 HttpAppFrameworkImpl.h:56 直接 `jsonConfig_["custom_config"]`），顶层自定义段**静默忽略**（2026-09-13 实踩：mock_channel 放顶层 → secret 读为空 → 所有回调验签被拒）。自定义配置（mock_channel / rabbitmq）必须放在 `"custom_config": { ... }` 内。
 - **`libmariadb-dev` 与 `libmysqlclient-dev` 冲突，装前者会卸后者**（2026-09-13 实踩），而 `mysqlclient.pc` 只由后者提供 → 干净缓存下 configure 报 "No package 'mysqlclient' found"，脏缓存下则报 "includes non-existent path"。修复方案：**项目改用 `libmariadb.pc`**（CMakeLists 的 pkg_check_modules 用 `libmariadb`，与 drogon 1.9.13 的 mariadb-only 立场一致）+ `ln -sfn /usr/include/mariadb /usr/include/mysql`（drogon 的 FindMySQL 需要）。devcontainer.json 已固化（不装 libmysqlclient-dev，apt 后自动建链接）。
 
   MySQL 端同样要把时区参数带上，JDBC/Drogon 连接串加 `charset=utf8mb4`，MySQL 8 默认排序规则已是 `utf8mb4_0900_ai_ci`，但**连接字符集仍需显式声明**，否则中文商品名可能乱码。

@@ -68,4 +68,19 @@ std::optional<models::Order> OrderDao::getByOrderNo(
     return o;
 }
 
+std::size_t OrderDao::markPaid(
+    const std::shared_ptr<drogon::orm::Transaction>& tx,
+    const std::string& orderNo) {
+
+    // 状态机条件更新（CLAUDE.md 5.4）：
+    //   WHERE status = 0 —— 只有待支付才能翻到已支付，防并发重复入账。
+    // paid_at 用 DB 侧 NOW()（+8 时区，与 expire_time 口径一致）。
+    auto result = tx->execSqlSync(
+        "UPDATE t_order"
+        "   SET status = 1, paid_at = NOW(), updated_at = NOW()"
+        " WHERE order_no = ? AND status = 0",
+        orderNo);
+    return result.affectedRows();
+}
+
 }  // namespace dao

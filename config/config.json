@@ -50,20 +50,29 @@
     "use_sendfile": true
   },
 
-  "rabbitmq": {
-    "host": "host.docker.internal",
-    "port": 5672,
-    "user": "guest",
-    "password": "guest",
-    "vhost": "/",
-    "heartbeat": 60,
-    "connection_timeout": 10,
-    "exchange": "trade.exchange",
-    "exchange_type": "topic",
-    "queue_notify": "trade.notify.queue",
-    "routing_key_notify": "order.paid",
-    "routing_key_dead": "order.dead",
-    "publisher_confirms": true,
-    "prefetch_count": 1
+  "custom_config": {
+    "_readme": "⚠️ drogon 的 getCustomConfig() 只返回 custom_config 段（实测 v1.9.13，HttpAppFrameworkImpl.h:56 直接 jsonConfig_[\"custom_config\"]）—— 顶层自定义段会被静默忽略（2026-09-13 实踩：mock_channel/rabbitmq 放顶层导致密钥读为空、验签全拒）。所有自定义配置必须放在本段内。",
+
+    "mock_channel": {
+      "_readme": "模拟渠道（MOCK）回调验签密钥，仅本地演示。签名协议见 src/utils/SignUtil.h 与 scripts/mock_pay.sh。真实渠道的密钥管理完全不同（配置中心/KMS），这是演示级简化。",
+      "secret": "mock-channel-secret-2026"
+    },
+
+    "rabbitmq": {
+      "host": "host.docker.internal",
+      "port": 5672,
+      "user": "guest",
+      "password": "guest",
+      "vhost": "/",
+      "heartbeat": 60,
+      "connection_timeout": 10,
+      "exchange": "trade.exchange",
+      "exchange_type": "topic",
+      "queue_notify": "trade.notify.queue",
+      "routing_key_notify": "order.paid",
+      "routing_key_dead": "order.dead",
+      "publisher_confirms": true,
+      "prefetch_count": 1
+    }
   }
 }

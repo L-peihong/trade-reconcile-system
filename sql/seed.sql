@@ -5,10 +5,13 @@
 USE trade_reconcile;
 
 -- 测试账户（V1 只做入账/出账）
-INSERT INTO t_account (account_no, user_id, balance, frozen_amount, version, status)
+-- 注意 user_id=1001 是验收/压测 curl 里用的下单用户，必须有对应账户，
+-- 否则支付回调时账户出账会报「账户不存在」。
+INSERT INTO t_account (id, account_no, user_id, balance, frozen_amount, version, status)
 VALUES
-    ('ACC0000000001', 10001, 100000.00, 0.00, 0, 0),
-    ('ACC0000000002', 10002,  50000.00, 0.00, 0, 0);
+    (1, 'ACC0000000001', 10001, 100000.00, 0.00, 0, 0),
+    (2, 'ACC0000000002', 10002,  50000.00, 0.00, 0, 0),
+    (3, 'ACC0000000003', 1001,  100000.00, 0.00, 0, 0);
 
 -- 测试商品
 -- P1002 库存 50 是防超卖压测商品（亮点①验收：100 并发抢 50 库存，

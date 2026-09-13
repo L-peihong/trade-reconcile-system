@@ -24,6 +24,12 @@ public:
     std::optional<models::Order> getByOrderNo(
         const std::shared_ptr<drogon::orm::Transaction>& tx,
         const std::string& orderNo);
+
+    // 订单状态流转：待支付 → 已支付（CLAUDE.md 5.4 状态机，单向禁止回退）。
+    // 带原状态条件：WHERE status = 0，靠 affectedRows 判断是否被抢先改过。
+    // 返回 0 = 订单不是待支付状态（已支付/已取消），由 Service 补查定语义。
+    std::size_t markPaid(const std::shared_ptr<drogon::orm::Transaction>& tx,
+                         const std::string& orderNo);
 };
 
 }  // namespace dao
